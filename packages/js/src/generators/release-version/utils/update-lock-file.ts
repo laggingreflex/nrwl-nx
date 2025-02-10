@@ -2,6 +2,7 @@ import {
   detectPackageManager,
   getPackageManagerCommand,
   getPackageManagerVersion,
+  isWorkspacesEnabled,
   output,
 } from '@nx/devkit';
 import { execSync } from 'child_process';
@@ -41,6 +42,16 @@ export async function updateLockFile(
     if (verbose) {
       console.log(
         '\nSkipped lock file update because it is not necessary for Yarn Classic.'
+      );
+    }
+    return [];
+  }
+
+  const workspacesEnabled = isWorkspacesEnabled(packageManager, cwd);
+  if (!workspacesEnabled) {
+    if (verbose) {
+      console.log(
+        `\nSkipped lock file update because ${packageManager} workspaces are not enabled.`
       );
     }
     return [];
@@ -114,12 +125,15 @@ function execLockFileUpdate(
   env: object = {}
 ): void {
   try {
+    const LARGE_BUFFER = 1024 * 1000000;
     execSync(command, {
       cwd,
+      maxBuffer: LARGE_BUFFER,
       env: {
         ...process.env,
         ...env,
       },
+      windowsHide: false,
     });
   } catch (e) {
     output.error({
@@ -128,7 +142,7 @@ function execLockFileUpdate(
         `Verify that '${command}' succeeds when run from the workspace root.`,
         `To configure a string of arguments to be passed to this command, set the 'release.version.generatorOptions.installArgs' property in nx.json.`,
         `To ignore install lifecycle scripts, set 'release.version.generatorOptions.installIgnoreScripts' to true in nx.json.`,
-        `To disable this step entirely, set 'release.version.skipLockFileUpdate' to true in nx.json.`,
+        `To disable this step entirely, set 'release.version.generatorOptions.skipLockFileUpdate' to true in nx.json.`,
       ],
     });
     throw e;

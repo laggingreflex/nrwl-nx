@@ -1,13 +1,13 @@
 import { workspaceRoot } from '@nx/devkit';
-import { dirname, join, relative } from 'path';
-import { existsSync, lstatSync } from 'fs';
-
-import vitePreprocessor from '../src/plugins/preprocessor-vite';
-import { NX_PLUGIN_OPTIONS } from '../src/utils/constants';
-
-import { spawn } from 'child_process';
+import { isUsingTsSolutionSetup } from '@nx/js/src/utils/typescript/ts-solution-setup';
+import { execSync, spawn } from 'child_process';
+import { lstatSync } from 'fs';
 import { request as httpRequest } from 'http';
 import { request as httpsRequest } from 'https';
+import { dirname, join, relative } from 'path';
+import type { InlineConfig } from 'vite';
+import vitePreprocessor from '../src/plugins/preprocessor-vite';
+import { NX_PLUGIN_OPTIONS } from '../src/utils/constants';
 
 // Importing the cypress type here causes the angular and next unit
 // tests to fail when transpiling, it seems like the cypress types are
@@ -34,6 +34,11 @@ export interface NxComponentTestingOptions {
   compiler?: 'swc' | 'babel';
 }
 
+// The bundler is only used while generating the component testing configuration
+// It cannot be changed after the configuration is generated
+export interface NxComponentTestingPresetOptions
+  extends Omit<NxComponentTestingOptions, 'bundler'> {}
+
 export function nxBaseCypressPreset(
   pathToConfig: string,
   options?: { testingType: 'component' | 'e2e' }
@@ -48,14 +53,13 @@ export function nxBaseCypressPreset(
     : dirname(pathToConfig);
   const projectPath = relative(workspaceRoot, normalizedPath);
   const offset = relative(normalizedPath, workspaceRoot);
-  const videosFolder = join(offset, 'dist', 'cypress', projectPath, 'videos');
-  const screenshotsFolder = join(
-    offset,
-    'dist',
-    'cypress',
-    projectPath,
-    'screenshots'
-  );
+  const isTsSolutionSetup = isUsingTsSolutionSetup();
+  const videosFolder = isTsSolutionSetup
+    ? join('test-output', 'cypress', 'videos')
+    : join(offset, 'dist', 'cypress', projectPath, 'videos');
+  const screenshotsFolder = isTsSolutionSetup
+    ? join('test-output', 'cypress', 'screenshots')
+    : join(offset, 'dist', 'cypress', projectPath, 'screenshots');
 
   return {
     videosFolder,
@@ -72,12 +76,25 @@ function startWebServer(webServerCommand: string) {
     // Windows is fine so we leave it attached to this process
     detached: process.platform !== 'win32',
     stdio: 'inherit',
+    windowsHide: false,
   });
 
   return () => {
-    // child.kill() does not work on linux
-    // process.kill will kill the whole process group on unix
-    process.kill(-serverProcess.pid, 'SIGKILL');
+    if (process.platform === 'win32') {
+      try {
+        execSync('taskkill /pid ' + serverProcess.pid + ' /T /F', {
+          windowsHide: false,
+        });
+      } catch (e) {
+        if (process.env.NX_VERBOSE_LOGGING === 'true') {
+          console.error(e);
+        }
+      }
+    } else {
+      // child.kill() does not work on linux
+      // process.kill will kill the whole process group on unix
+      process.kill(-serverProcess.pid, 'SIGKILL');
+    }
   };
 }
 
@@ -102,22 +119,12 @@ export function nxE2EPreset(
 ) {
   const basePath = options?.cypressDir || 'src';
 
-  const dir = dirname(pathToConfig);
-  let supportFile: undefined | string = undefined;
-  for (const f of ['e2e.ts', 'e2e.js']) {
-    const candidate = join(dir, basePath, 'support', f);
-    if (existsSync(candidate)) {
-      supportFile = candidate;
-      break;
-    }
-  }
-
   const baseConfig: any /*Cypress.EndToEndConfigOptions & {
     [NX_PLUGIN_OPTIONS]: unknown;
   }*/ = {
     ...nxBaseCypressPreset(pathToConfig),
     fileServerFolder: '.',
-    supportFile,
+    supportFile: `${basePath}/support/e2e.{js,ts}`,
     specPattern: `${basePath}/**/*.cy.{js,jsx,ts,tsx}`,
     fixturesFolder: `${basePath}/fixtures`,
 
@@ -125,6 +132,7 @@ export function nxE2EPreset(
       webServerCommand: options?.webServerCommands?.default,
       webServerCommands: options?.webServerCommands,
       ciWebServerCommand: options?.ciWebServerCommand,
+      ciBaseUrl: options?.ciBaseUrl,
     },
 
     async setupNodeEvents(on, config) {
@@ -134,7 +142,7 @@ export function nxE2EPreset(
         config.env?.webServerCommand ?? webServerCommands?.default;
 
       if (options?.bundler === 'vite') {
-        on('file:preprocessor', vitePreprocessor());
+        on('file:preprocessor', vitePreprocessor(options?.viteConfigOverrides));
       }
 
       if (!options?.webServerCommands) {
@@ -182,7 +190,7 @@ function waitForServer(
     let pollTimeout: NodeJS.Timeout | null;
     const { protocol } = new URL(url);
 
-    const timeoutDuration = webServerConfig?.timeout ?? 15 * 1000;
+    const timeoutDuration = webServerConfig?.timeout ?? 60 * 1000;
     const timeout = setTimeout(() => {
       clearTimeout(pollTimeout);
       reject(
@@ -263,7 +271,17 @@ export type NxCypressE2EPresetOptions = {
   ciWebServerCommand?: string;
 
   /**
+   * The url of the web server for ciWebServerCommand
+   */
+  ciBaseUrl?: string;
+
+  /**
    * Configures how the web server command is started and monitored.
    */
   webServerConfig?: WebServerConfig;
+
+  /**
+   * Configure override inside the vite config
+   */
+  viteConfigOverrides?: InlineConfig;
 };

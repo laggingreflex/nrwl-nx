@@ -1,12 +1,36 @@
-# Automatically Split E2E Tasks by File
+---
+keywords: [split tasks, atomizer]
+---
 
-In almost every codebase, e2e tests are the largest portion of the CI pipeline. Typically, e2e tests are grouped by application so that whenever an application's code changes, all the e2e tests for that application are run. These large groupings of e2e tests make caching and distribution less effective. Also, because e2e tests deal with a lot of integration code, they are at a much higher risk to be flaky.
+# Automatically Split E2E Tasks by File (Atomizer)
 
-You could manually address these problems by splitting your e2e tests into smaller tasks, but this requires developer time to maintain and adds additional configuration overhead to your codebase. Or, you could allow Nx to automatically split your Cypress or Playwright e2e tests by file.
+{% youtube
+src="https://youtu.be/0YxcxIR7QU0"
+title="10x Faster e2e Tests!"
+width="100%" /%}
 
-## Set up
+End-to-end (e2e) tests are often large, monolithic tasks that can take a considerable amount of time to execute. As a result, teams often push them to a nightly or even weekly build rather than running them for each PR. This approach is suboptimal as it increases the risk of merging problematic PRs.
 
-To enable automatically split e2e tasks, you need to turn on [inferred tasks](/concepts/inferred-tasks) for the [@nx/cypress](/nx-api/cypress) or [@nx/playwright](/nx-api/playwright) plugins. Run this command to set up inferred tasks:
+Manually splitting large e2e test projects can be complex and require ongoing maintenance. Nx's Atomizer solves this by **automatically generating runnable targets for e2e tests for each spec file**. Instead of one large e2e task, you get multiple smaller e2e tasks that can be run individually. This allows for:
+
+- parallelization across multiple machines with [Nx Agents](/ci/features/distribute-task-execution)
+- faster [flakiness detection & retries](/ci/features/flaky-tasks) by isolating and re-running only the failed tests
+
+## Enable Automated e2e Task Splitting
+
+### Step 1: Connect to Nx Cloud
+
+To use **automated e2e task splitting**, you need to connect your workspace to Nx Cloud (if you haven't already).
+
+```shell
+npx nx connect
+```
+
+See the [connect to Nx Cloud recipe](/ci/intro/connect-to-nx-cloud) for all the details.
+
+### Step 2: Add the Appropriate Plugin
+
+Run this command to set up inferred tasks and enable task splitting for each plugin:
 
 {% tabs %}
 {% tab label="Cypress" %}
@@ -23,29 +47,65 @@ nx add @nx/playwright
 ```
 
 {% /tab %}
+{% tab label="Jest" %}
+
+```shell {% skipRescope=true %}
+nx add @nx/jest
+```
+
+{% /tab %}
 {% /tabs %}
 
 This command will register the appropriate plugin in the `plugins` array of `nx.json`.
 
-## Manual Configuration
+If you upgraded Nx from an older version, ensure that [inferred tasks](/concepts/inferred-tasks#existing-nx-workspaces) are enabled in `nx.json`:
 
-If you are already using the `@nx/cypress` or `@nx/playwright` plugin, you need to manually add the appropriate configuration to the `plugins` array of `nx.json`. The configuration settings can be found on the [Cypress](/nx-api/cypress#nxcypress-configuration) or [Playwright](/nx-api/playwright#nxplaywright-configuration) plugin docs.
-
-## Usage
-
-You can view the available tasks for your project in the project detail view:
-
-```shell
-nx show project myproject-e2e --web
+```json {% fileName="nx.json" %}
+{
+  ...
+  // turned on by default; just make sure it is not set to false
+  useInferencePlugins: true
+}
 ```
 
-{% project-details title="Project Details View" height="100px" %}
+## Update an Existing e2e Project to use Automated Task Splitting
+
+If you are already using the `@nx/cypress`, `@nx/playwright`, or `@nx/jest` plugin, you need to manually add the appropriate configuration to the `plugins` array of `nx.json`. Follow the instructions for the plugin you are using:
+
+- [Configure Cypress Task Splitting](/nx-api/cypress#nxcypress-configuration)
+- [Configure Playwright Task Splitting](/nx-api/playwright#nxplaywright-configuration)
+- [Configure Jest Task Splitting](/nx-api/jest#splitting-e2e-tests)
+
+## Verify Automated Task Splitting Works
+
+Run the following command to open the project detail view for the e2e project:
+
+{% tabs %}
+{% tab label="CLI" %}
+
+```shell
+nx show project my-project-e2e
+```
+
+{% /tab %}
+{% tab label="Project Detail View" %}
+
+{% project-details title="Project Details View" %}
 
 ```json
 {
   "project": {
     "name": "admin-e2e",
     "data": {
+      "metadata": {
+        "targetGroups": {
+          "E2E (CI)": [
+            "e2e-ci--src/e2e/app.cy.ts",
+            "e2e-ci--src/e2e/login.cy.ts",
+            "e2e-ci"
+          ]
+        }
+      },
       "root": "apps/admin-e2e",
       "projectType": "application",
       "targets": {
@@ -66,6 +126,9 @@ nx show project myproject-e2e --web
             "production": {
               "command": "cypress run --env webServerCommand=\"nx run admin:preview\""
             }
+          },
+          "metadata": {
+            "technologies": ["cypress"]
           }
         },
         "e2e-ci--src/e2e/app.cy.ts": {
@@ -86,7 +149,10 @@ nx show project myproject-e2e --web
             "command": "cypress run --env webServerCommand=\"nx run admin:serve-static\" --spec src/e2e/app.cy.ts"
           },
           "executor": "nx:run-commands",
-          "configurations": {}
+          "configurations": {},
+          "metadata": {
+            "technologies": ["cypress"]
+          }
         },
         "e2e-ci--src/e2e/login.cy.ts": {
           "outputs": [
@@ -106,7 +172,10 @@ nx show project myproject-e2e --web
             "command": "cypress run --env webServerCommand=\"nx run admin:serve-static\" --spec src/e2e/login.cy.ts"
           },
           "executor": "nx:run-commands",
-          "configurations": {}
+          "configurations": {},
+          "metadata": {
+            "technologies": ["cypress"]
+          }
         },
         "e2e-ci": {
           "executor": "nx:noop",
@@ -135,7 +204,10 @@ nx show project myproject-e2e --web
             }
           ],
           "options": {},
-          "configurations": {}
+          "configurations": {},
+          "metadata": {
+            "technologies": ["cypress"]
+          }
         },
         "lint": {
           "executor": "@nx/eslint:lint",
@@ -143,7 +215,10 @@ nx show project myproject-e2e --web
           "cache": true,
           "outputs": ["{options.outputFile}"],
           "options": {},
-          "configurations": {}
+          "configurations": {},
+          "metadata": {
+            "technologies": ["eslint"]
+          }
         }
       },
       "name": "admin-e2e",
@@ -325,32 +400,49 @@ nx show project myproject-e2e --web
 
 {% /project-details %}
 
-You'll see that there are tasks named `e2e`, `e2e-ci` and a task for each e2e test file.
+{% /tab %}
+{% /tabs %}
 
-Developers can run all e2e tests locally with the `e2e` target:
+If you configured Nx Atomizer properly, you'll see that there are tasks named `e2e`, `e2e-ci` and a task for each e2e test file.
+
+During local development, you’ll want to continue using `e2e` as it is more efficient on a single machine.
 
 ```shell
 nx e2e my-project-e2e
 ```
 
-You can update your CI pipeline to run `e2e-ci`, which will automatically run all the inferred tasks for the individual e2e test files. Run it like this:
+The `e2e-ci` task truly shines when configured and run on CI.
 
-```shell
-nx e2e-ci my-project-e2e
+## Configure Automated Task Splitting on CI
+
+Update your CI pipeline to run `e2e-ci`, which will automatically run all the inferred tasks for the individual e2e test files. Here's an example of a GitHub Actions workflow:
+
+```yaml {% fileName=".github/workflows/ci.yml" highlightLines=[15,25] %}
+name: CI
+# ...
+jobs:
+  main:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - run: pnpm dlx nx-cloud start-ci-run --distribute-on="3 linux-medium-js" --stop-agents-after="e2e-ci"
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - run: pnpm install --frozen-lockfile
+      - uses: nrwl/nx-set-shas@v4
+
+      - run: pnpm exec nx affected -t lint test build e2e-ci
 ```
 
-## Benefits
-
-With more granular e2e tasks, all the other features of Nx become more powerful. Let's imagine a scenario where there are 10 spec files in a single e2e project and each spec file takes 3 minutes to run.
-
-### Improved Caching
-
-[Nx's cache](/ci/features/remote-cache) can be used for all the individual e2e tasks that succeeded and only the failed tasks need to be re-run. Without e2e task splitting, a single spec file failing would force you to re-run all the e2e tests for the project, which would take 30 minutes. With e2e task splitting, a single spec file that fails can be re-run in 3 minutes and the other successful spec file results can be retrieved from the cache.
-
-### Better Distribution
-
-[Distributed task execution](/ci/features/distribute-task-execution) allows your e2e tests to be run on multiple machines simultaneously, which reduces the total time of the CI pipeline. Without e2e task splitting, the CI pipeline has to take at least 30 minutes to complete because the one e2e task needs that long to finish. With e2e task splitting, a fully distributed pipeline with 10 agents could finish in 3 minutes.
-
-### More Precise Flaky Task Identification
-
-Nx Agents [automatically re-run failed flaky e2e tests](/ci/features/flaky-tasks) on a separate agent without a developer needing to manually re-run the CI pipeline. Leveraging e2e task splitting, Nx identifies the specific flaky test file - this way you can quickly fix the offending test file. Without e2e splitting, Nx identifies that at least one of the e2e tests are flaky - requiring you to find the flaky test on your own.
+Learn more about configuring your [CI provider by following these detailed recipes](/ci/recipes/set-up).

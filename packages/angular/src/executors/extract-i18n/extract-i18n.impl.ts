@@ -29,7 +29,7 @@ export default async function* extractI18nExecutor(
     {
       builderName: 'extrct-i18n',
       description: 'Extracts i18n messages from source code.',
-      optionSchema: await import('./schema.json'),
+      optionSchema: require('./schema.json'),
     },
     context
   );
@@ -56,7 +56,9 @@ export default async function* extractI18nExecutor(
 function getDelegateBuilderOptions(
   options: ExtractI18nExecutorOptions
 ): ExtractI18nBuilderOptions {
-  const delegateBuilderOptions: ExtractI18nBuilderOptions = { ...options };
+  const delegateBuilderOptions: ExtractI18nBuilderOptions & {
+    browserTarget?: string;
+  } = { ...options };
 
   const { major: angularMajorVersion } = getInstalledAngularVersionInfo();
   if (angularMajorVersion <= 17) {

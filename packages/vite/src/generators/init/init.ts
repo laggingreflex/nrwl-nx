@@ -1,4 +1,5 @@
 import {
+  createProjectGraphAsync,
   formatFiles,
   GeneratorCallback,
   readNxJson,
@@ -6,15 +7,13 @@ import {
   Tree,
   updateNxJson,
 } from '@nx/devkit';
-import { updatePackageScripts } from '@nx/devkit/src/utils/update-package-scripts';
+import { addPlugin } from '@nx/devkit/src/utils/add-plugin';
 
-import { createNodes } from '../../plugins/plugin';
+import { setupPathsPlugin } from '../setup-paths-plugin/setup-paths-plugin';
+import { createNodesV2 } from '../../plugins/plugin';
 import { InitGeneratorSchema } from './schema';
-import {
-  addPlugin,
-  checkDependenciesInstalled,
-  moveToDevDependencies,
-} from './lib/utils';
+import { checkDependenciesInstalled, moveToDevDependencies } from './lib/utils';
+import { addViteTempFilesToGitIgnore } from '../../utils/add-vite-temp-files-to-gitignore';
 
 export function updateNxJsonSettings(tree: Tree) {
   const nxJson = readNxJson(tree);
@@ -23,7 +22,8 @@ export function updateNxJsonSettings(tree: Tree) {
   if (productionFileSet) {
     productionFileSet.push(
       '!{projectRoot}/**/?(*.)+(spec|test).[jt]s?(x)?(.snap)',
-      '!{projectRoot}/tsconfig.spec.json'
+      '!{projectRoot}/tsconfig.spec.json',
+      '!{projectRoot}/src/test-setup.[jt]s'
     );
 
     nxJson.namedInputs.production = Array.from(new Set(productionFileSet));
@@ -56,21 +56,56 @@ export async function initGeneratorInternal(
   tree: Tree,
   schema: InitGeneratorSchema
 ) {
-  schema.addPlugin ??= process.env.NX_ADD_PLUGINS !== 'false';
+  const nxJson = readNxJson(tree);
+  const addPluginDefault =
+    process.env.NX_ADD_PLUGINS !== 'false' &&
+    nxJson.useInferencePlugins !== false;
+  schema.addPlugin ??= addPluginDefault;
+
   if (schema.addPlugin) {
-    addPlugin(tree);
+    await addPlugin(
+      tree,
+      await createProjectGraphAsync(),
+      '@nx/vite/plugin',
+      createNodesV2,
+      {
+        buildTargetName: ['build', 'vite:build', 'vite-build'],
+        testTargetName: ['test', 'vite:test', 'vite-test'],
+        serveTargetName: ['serve', 'vite:serve', 'vite-serve'],
+        devTargetName: ['dev', 'vite:dev', 'vite-dev'],
+        previewTargetName: ['preview', 'vite:preview', 'vite-preview'],
+        serveStaticTargetName: [
+          'serve-static',
+          'vite:serve-static',
+          'vite-serve-static',
+        ],
+        typecheckTargetName: ['typecheck', 'vite:typecheck', 'vite-typecheck'],
+        buildDepsTargetName: [
+          'build-deps',
+          'vite:build-deps',
+          'vite-build-deps',
+        ],
+        watchDepsTargetName: [
+          'watch-deps',
+          'vite:watch-deps',
+          'vite-watch-deps',
+        ],
+      },
+      schema.updatePackageScripts
+    );
   }
 
   updateNxJsonSettings(tree);
+  addViteTempFilesToGitIgnore(tree);
+
+  if (schema.setupPathsPlugin) {
+    await setupPathsPlugin(tree, { skipFormat: true });
+  }
 
   const tasks: GeneratorCallback[] = [];
   if (!schema.skipPackageJson) {
     tasks.push(moveToDevDependencies(tree));
-    tasks.push(checkDependenciesInstalled(tree, schema));
-  }
-
-  if (schema.updatePackageScripts) {
-    await updatePackageScripts(tree, createNodes);
+    tasks.push(await checkDependenciesInstalled(tree, schema));
   }
 
   if (!schema.skipFormat) {

@@ -15,7 +15,7 @@ updating any framework dependencies as needed.
 {% pill url="/ci/features/remote-cache" %}✅ Share Your Cache{% /pill %}
 {% pill url="/features/explore-graph" %}✅ Explore the Graph{% /pill %}
 {% pill url="/ci/features/distribute-task-execution" %}✅ Distribute Task Execution{% /pill %}
-{% pill url="/features/integrate-with-editors" %}✅ Integrate with Editors{% /pill %}
+{% pill url="/getting-started/editor-setup" %}✅ Integrate with Editors{% /pill %}
 {% pill url="/features/automate-updating-dependencies" %}✅ Automate Updating Nx{% /pill %}
 {% pill url="/features/enforce-module-boundaries" %}✅ Enforce Module Boundaries{% /pill %}
 {% pill url="/features/generate-code" %}🚫 Use Code Generators{% /pill %}
@@ -28,7 +28,7 @@ updating any framework dependencies as needed.
 
 ```shell
 npm add solid-js
-npm add -D solid-devtools vite-plugin-solid
+npm add -D solid-devtools vite-plugin-solid vite-tsconfig-paths
 nx add @nx/web
 ```
 
@@ -37,7 +37,7 @@ nx add @nx/web
 
 ```shell
 yarn add solid-js
-yarn add -D solid-devtools vite-plugin-solid
+yarn add -D solid-devtools vite-plugin-solid vite-tsconfig-paths
 nx add @nx/web
 ```
 
@@ -46,7 +46,17 @@ nx add @nx/web
 
 ```shell
 pnpm add solid-js
-pnpm add -D solid-devtools vite-plugin-solid
+pnpm add -D solid-devtools vite-plugin-solid vite-tsconfig-paths
+nx add @nx/web
+```
+
+{% /tab %}
+
+{% tab label="bun" %}
+
+```shell
+bun add solid-js
+bun add -D solid-devtools vite-plugin-solid vite-tsconfig-paths
 nx add @nx/web
 ```
 
@@ -55,15 +65,11 @@ nx add @nx/web
 
 ## Create an Application
 
-{% callout type="note" title="Directory Flag Behavior Changes" %}
-The command below uses the `as-provided` directory flag behavior, which is the default in Nx 16.8.0. If you're on an earlier version of Nx or using the `derived` option, omit the `--directory` flag. See the [as-provided vs. derived documentation](/deprecated/as-provided-vs-derived) for more details.
-{% /callout %}
-
 We'll start with a web application and then tweak the settings to match what we need. Add a new web application to your
 workspace with the following command:
 
 ```shell
-nx g @nx/web:app my-solid-app --directory=apps/my-solid-app --bundler=vite
+nx g @nx/web:app apps/my-solid-app --bundler=vite
 ```
 
 The `@nx/web:app` generator will create some files that are unnecessary for our Solid application.
@@ -153,7 +159,7 @@ import solidPlugin from 'vite-plugin-solid';
 import viteTsConfigPaths from 'vite-tsconfig-paths';
 
 export default defineConfig({
-  cacheDir: '../../node_modules/.vite/my-solid-app',
+  cacheDir: '../../node_modules/.vite/apps/my-solid-app',
 
   server: {
     port: 3000,
@@ -187,7 +193,7 @@ export default defineConfig({
   test: {
     globals: true,
     cache: {
-      dir: '../../node_modules/.vitest',
+      dir: '../../node_modules/.vitest/apps/my-solid-app',
     },
     environment: 'jsdom',
     include: ['src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
@@ -234,15 +240,11 @@ You can now run `nx serve my-solid-app` and your Solid application can be viewed
 
 ## Create a Library
 
-{% callout type="note" title="Directory Flag Behavior Changes" %}
-The command below uses the `as-provided` directory flag behavior, which is the default in Nx 16.8.0. If you're on an earlier version of Nx or using the `derived` option, omit the `--directory` flag. See the [as-provided vs. derived documentation](/deprecated/as-provided-vs-derived) for more details.
-{% /callout %}
-
 Let's create a library that our Solid application is going to consume. To create a new library, install the `@nx/js`
 package and run:
 
 ```shell
-nx g @nx/js:lib my-lib --directory=libs/my-lib
+nx g @nx/js:lib libs/my-lib
 ```
 
 Once the library is created, update the following files.

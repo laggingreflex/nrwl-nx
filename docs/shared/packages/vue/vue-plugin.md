@@ -9,7 +9,7 @@ The Nx plugin for [Vue](https://vuejs.org/).
 
 ### Generating a new Workspace
 
-To create a new workspace with React, run `npx create-nx-workspace@latest --preset=vue`.
+To create a new workspace with Vue, run `npx create-nx-workspace@latest --preset=vue`.
 
 {% callout type="note" title="Vue Standalone Tutorial" %}
 For a full tutorial experience, follow the [Vue Standalone Tutorial](/getting-started/tutorials/vue-standalone-tutorial)
@@ -51,13 +51,13 @@ npm add -D @nx/vue
 To generate a Vue application, run the following:
 
 ```shell
-nx g @nx/vue:app my-app
+nx g @nx/vue:app apps/my-app
 ```
 
 To generate a Vue library, run the following:
 
 ```shell
-nx g @nx/vue:lib my-lib
+nx g @nx/vue:lib libs/my-lib
 ```
 
 ## More Documentation

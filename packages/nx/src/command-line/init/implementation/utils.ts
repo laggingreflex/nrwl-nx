@@ -2,7 +2,6 @@ import { execSync } from 'child_process';
 import { join } from 'path';
 
 import { NxJsonConfiguration } from '../../../config/nx-json';
-import { runNxSync } from '../../../utils/child-process';
 import {
   fileExists,
   readJsonFile,
@@ -17,6 +16,10 @@ import {
 import { joinPathFragments } from '../../../utils/path';
 import { nxVersion } from '../../../utils/versions';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { printSuccessMessage } from '../../../nx-cloud/generators/connect-to-nx-cloud/connect-to-nx-cloud';
+import { repoUsesGithub } from '../../../nx-cloud/utilities/url-shorten';
+import { connectWorkspaceToCloud } from '../../connect/connect-to-nx-cloud';
+import { deduceDefaultBase as gitInitDefaultBase } from '../../../utils/default-base';
 
 export function createNxJsonFile(
   repoRoot: string,
@@ -39,14 +42,14 @@ export function createNxJsonFile(
       nxJson.targetDefaults[scriptName] ??= {};
       nxJson.targetDefaults[scriptName] = { dependsOn: [`^${scriptName}`] };
     }
-    for (const [scriptName, output] of Object.entries(scriptOutputs)) {
-      if (!output) {
-        // eslint-disable-next-line no-continue
-        continue;
-      }
-      nxJson.targetDefaults[scriptName] ??= {};
-      nxJson.targetDefaults[scriptName].outputs = [`{projectRoot}/${output}`];
+  }
+  for (const [scriptName, output] of Object.entries(scriptOutputs)) {
+    if (!output) {
+      // eslint-disable-next-line no-continue
+      continue;
     }
+    nxJson.targetDefaults[scriptName] ??= {};
+    nxJson.targetDefaults[scriptName].outputs = [`{projectRoot}/${output}`];
   }
 
   for (const target of cacheableOperations) {
@@ -58,8 +61,7 @@ export function createNxJsonFile(
     delete nxJson.targetDefaults;
   }
 
-  nxJson.affected ??= {};
-  nxJson.affected.defaultBase ??= deduceDefaultBase();
+  nxJson.defaultBase ??= deduceDefaultBase();
   writeJsonFile(nxJsonPath, nxJson);
 }
 
@@ -67,28 +69,40 @@ function deduceDefaultBase() {
   try {
     execSync(`git rev-parse --verify main`, {
       stdio: ['ignore', 'ignore', 'ignore'],
+      windowsHide: false,
     });
     return 'main';
   } catch {
     try {
       execSync(`git rev-parse --verify dev`, {
         stdio: ['ignore', 'ignore', 'ignore'],
+        windowsHide: false,
       });
       return 'dev';
     } catch {
       try {
         execSync(`git rev-parse --verify develop`, {
           stdio: ['ignore', 'ignore', 'ignore'],
+          windowsHide: false,
         });
         return 'develop';
       } catch {
         try {
           execSync(`git rev-parse --verify next`, {
             stdio: ['ignore', 'ignore', 'ignore'],
+            windowsHide: false,
           });
           return 'next';
         } catch {
-          return 'master';
+          try {
+            execSync(`git rev-parse --verify master`, {
+              stdio: ['ignore', 'ignore', 'ignore'],
+              windowsHide: false,
+            });
+            return 'master';
+          } catch {
+            return gitInitDefaultBase();
+          }
         }
       }
     }
@@ -115,10 +129,23 @@ export function updateGitIgnore(root: string) {
   const ignorePath = join(root, '.gitignore');
   try {
     let contents = readFileSync(ignorePath, 'utf-8');
+    const lines = contents.split('\n');
+    let sepIncluded = false;
     if (!contents.includes('.nx/cache')) {
-      contents = [contents, '', '.nx/cache'].join('\n');
-      writeFileSync(ignorePath, contents, 'utf-8');
+      if (!sepIncluded) {
+        lines.push('\n');
+        sepIncluded = true;
+      }
+      lines.push('.nx/cache');
     }
+    if (!contents.includes('.nx/workspace-data')) {
+      if (!sepIncluded) {
+        lines.push('\n');
+        sepIncluded = true;
+      }
+      lines.push('.nx/workspace-data');
+    }
+    writeFileSync(ignorePath, lines.join('\n'), 'utf-8');
   } catch {}
 }
 
@@ -126,25 +153,26 @@ export function runInstall(
   repoRoot: string,
   pmc: PackageManagerCommands = getPackageManagerCommand()
 ) {
-  execSync(pmc.install, { stdio: [0, 1, 2], cwd: repoRoot });
+  execSync(pmc.install, {
+    stdio: [0, 1, 2],
+    cwd: repoRoot,
+    windowsHide: false,
+  });
 }
 
-export function initCloud(
-  repoRoot: string,
+export async function initCloud(
   installationSource:
+    | 'nx-init'
     | 'nx-init-angular'
     | 'nx-init-cra'
     | 'nx-init-monorepo'
     | 'nx-init-nest'
     | 'nx-init-npm-repo'
 ) {
-  runNxSync(
-    `g nx:connect-to-nx-cloud --installationSource=${installationSource} --quiet --no-interactive`,
-    {
-      stdio: [0, 1, 2],
-      cwd: repoRoot,
-    }
-  );
+  const token = await connectWorkspaceToCloud({
+    installationSource,
+  });
+  await printSuccessMessage(token, installationSource, await repoUsesGithub());
 }
 
 export function addVsCodeRecommendedExtensions(
@@ -169,23 +197,15 @@ export function addVsCodeRecommendedExtensions(
   }
 }
 
-export function markRootPackageJsonAsNxProject(
+export function markRootPackageJsonAsNxProjectLegacy(
   repoRoot: string,
   cacheableScripts: string[],
-  scriptOutputs: { [script: string]: string },
   pmc: PackageManagerCommands
 ) {
   const json = readJsonFile<PackageJson>(
     joinPathFragments(repoRoot, `package.json`)
   );
-  json.nx = { targets: {} };
-  for (let script of Object.keys(scriptOutputs)) {
-    if (scriptOutputs[script]) {
-      json.nx.targets[script] = {
-        outputs: [`{projectRoot}/${scriptOutputs[script]}`],
-      };
-    }
-  }
+  json.nx = {};
   for (let script of cacheableScripts) {
     const scriptDefinition = json.scripts[script];
     if (!scriptDefinition) {
@@ -203,22 +223,28 @@ export function markRootPackageJsonAsNxProject(
   writeJsonFile(`package.json`, json);
 }
 
+export function markPackageJsonAsNxProject(packageJsonPath: string) {
+  const json = readJsonFile<PackageJson>(packageJsonPath);
+  if (!json.scripts) {
+    return;
+  }
+
+  json.nx = {};
+  writeJsonFile(packageJsonPath, json);
+}
+
 export function printFinalMessage({
   learnMoreLink,
-  bodyLines,
 }: {
   learnMoreLink?: string;
-  bodyLines?: string[];
 }): void {
-  const normalizedBodyLines = (bodyLines ?? []).map((l) =>
-    l.startsWith('- ') ? l : `- ${l}`
-  );
+  const pmc = getPackageManagerCommand();
 
   output.success({
     title: '🎉 Done!',
     bodyLines: [
-      '- Enabled computation caching!',
-      ...normalizedBodyLines,
+      `- Run "${pmc.exec} nx run-many -t build" to run the build target for every project in the workspace. Run it again to replay the cached computation. https://nx.dev/features/cache-task-results`,
+      `- Run "${pmc.exec} nx graph" to see the graph of projects and tasks in your workspace. https://nx.dev/core-features/explore-graph`,
       learnMoreLink ? `- Learn more at ${learnMoreLink}.` : undefined,
     ].filter(Boolean),
   });

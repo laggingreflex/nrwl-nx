@@ -2,12 +2,14 @@ import { type Tree, addDependenciesToPackageJson } from '@nx/devkit';
 import {
   eslintVersion,
   isbotVersion,
+  nxVersion,
   reactDomVersion,
   reactVersion,
   remixVersion,
   typescriptVersion,
   typesReactDomVersion,
   typesReactVersion,
+  viteVersion,
 } from '../../utils/versions';
 
 export function updateDependencies(tree: Tree) {
@@ -21,11 +23,12 @@ export function updateDependencies(tree: Tree) {
       'react-dom': reactDomVersion,
     },
     {
-      '@remix-run/eslint-config': remixVersion,
       '@types/react': typesReactVersion,
       '@types/react-dom': typesReactDomVersion,
       eslint: eslintVersion,
       typescript: typescriptVersion,
+      vite: viteVersion,
+      '@nx/vite': nxVersion,
     }
   );
 }

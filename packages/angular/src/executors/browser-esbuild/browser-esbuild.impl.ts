@@ -1,7 +1,7 @@
-import { stripIndents, type ExecutorContext } from '@nx/devkit';
+import type { buildEsbuildBrowser as buildEsbuildBrowserFn } from '@angular-devkit/build-angular/src/builders/browser-esbuild';
+import type { ExecutorContext } from '@nx/devkit';
 import type { DependentBuildableProjectNode } from '@nx/js/src/utils/buildable-libs-utils';
 import { createBuilderContext } from 'nx/src/adapter/ngcli-adapter';
-import { getInstalledAngularVersionInfo } from '../utilities/angular-version-utils';
 import { createTmpTsConfigForBuildableLibs } from '../utilities/buildable-libs';
 import { loadPlugins } from '../utilities/esbuild-extensions';
 import type { EsBuildSchema } from './schema';
@@ -9,16 +9,7 @@ import type { EsBuildSchema } from './schema';
 export default async function* esbuildExecutor(
   options: EsBuildSchema,
   context: ExecutorContext
-) {
-  if (options.plugins) {
-    const { major: angularMajorVersion, version: angularVersion } =
-      getInstalledAngularVersionInfo();
-    if (angularMajorVersion < 17) {
-      throw new Error(stripIndents`The "plugins" option is only supported in Angular >= 17.0.0. You are currently using "${angularVersion}".
-        You can resolve this error by removing the "plugins" option or by migrating to Angular 17.0.0.`);
-    }
-  }
-
+): ReturnType<typeof buildEsbuildBrowserFn> {
   options.buildLibsFromSource ??= true;
 
   const {
@@ -41,17 +32,15 @@ export default async function* esbuildExecutor(
 
   const plugins = await loadPlugins(pluginPaths, options.tsConfig);
 
-  const { buildEsbuildBrowser } = await import(
-    '@angular-devkit/build-angular/src/builders/browser-esbuild/index'
-  );
+  const { buildEsbuildBrowser } = <
+    typeof import('@angular-devkit/build-angular/src/builders/browser-esbuild')
+  >require('@angular-devkit/build-angular/src/builders/browser-esbuild');
 
   const builderContext = await createBuilderContext(
     {
       builderName: 'browser-esbuild',
       description: 'Build a browser application',
-      optionSchema: await import(
-        '@angular-devkit/build-angular/src/builders/browser-esbuild/schema.json'
-      ),
+      optionSchema: require('@angular-devkit/build-angular/src/builders/browser-esbuild/schema.json'),
     },
     context
   );

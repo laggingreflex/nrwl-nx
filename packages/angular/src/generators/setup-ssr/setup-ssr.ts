@@ -4,7 +4,6 @@ import {
   installPackagesTask,
   readProjectConfiguration,
 } from '@nx/devkit';
-import { getInstalledAngularVersionInfo } from '../utils/version-utils';
 import {
   addDependencies,
   addHydration,
@@ -14,7 +13,6 @@ import {
   normalizeOptions,
   setRouterInitialNavigation,
   setServerTsConfigOptionsForApplicationBuilder,
-  updateAppModule,
   updateProjectConfigForApplicationBuilder,
   updateProjectConfigForBrowserBuilder,
   validateOptions,
@@ -23,29 +21,22 @@ import type { Schema } from './schema';
 
 export async function setupSsr(tree: Tree, schema: Schema) {
   validateOptions(tree, schema);
-  const options = normalizeOptions(tree, schema);
+  const options = await normalizeOptions(tree, schema);
 
-  const { targets } = readProjectConfiguration(tree, options.project);
-  const isUsingApplicationBuilder =
-    targets.build.executor === '@angular-devkit/build-angular:application' ||
-    targets.build.executor === '@nx/angular:application';
-
-  addDependencies(tree, isUsingApplicationBuilder);
-  generateSSRFiles(tree, options, isUsingApplicationBuilder);
-
-  if (!options.standalone) {
-    updateAppModule(tree, options);
+  if (!schema.skipPackageJson) {
+    addDependencies(tree, options.isUsingApplicationBuilder);
   }
+  generateSSRFiles(tree, options);
+
   if (options.hydration) {
     addHydration(tree, options);
   }
 
-  const { major: angularMajorVersion } = getInstalledAngularVersionInfo(tree);
-  if (angularMajorVersion < 17 || !options.hydration) {
+  if (!options.hydration) {
     setRouterInitialNavigation(tree, options);
   }
 
-  if (isUsingApplicationBuilder) {
+  if (options.isUsingApplicationBuilder) {
     updateProjectConfigForApplicationBuilder(tree, options);
     setServerTsConfigOptionsForApplicationBuilder(tree, options);
   } else {
@@ -53,7 +44,7 @@ export async function setupSsr(tree: Tree, schema: Schema) {
     generateTsConfigServerJsonForBrowserBuilder(tree, options);
   }
 
-  addServerFile(tree, options, isUsingApplicationBuilder);
+  addServerFile(tree, options);
 
   if (!options.skipFormat) {
     await formatFiles(tree);

@@ -40,13 +40,7 @@ export async function convertToApplicationExecutor(
   tree: Tree,
   options: GeneratorOptions
 ) {
-  const { major: angularMajorVersion, version: angularVersion } =
-    getInstalledAngularVersionInfo(tree);
-  if (angularMajorVersion < 17) {
-    throw new Error(
-      `The "convert-to-application-executor" generator is only supported in Angular >= 17.0.0. You are currently using "${angularVersion}".`
-    );
-  }
+  const { version: angularVersion } = getInstalledAngularVersionInfo(tree);
 
   let didAnySucceed = false;
   if (options.project) {
@@ -107,7 +101,8 @@ async function convertProjectTargets(
   }
 
   const { buildTargetName, serverTargetName } = getTargetsToConvert(
-    project.targets
+    project.targets,
+    angularVersion
   );
   if (!buildTargetName) {
     warnIfProvided(
@@ -181,7 +176,9 @@ async function convertProjectTargets(
     }
 
     // Delete removed options
-    delete options['deployUrl'];
+    if (lt(angularVersion, '17.3.0')) {
+      delete options['deployUrl'];
+    }
     delete options['vendorChunk'];
     delete options['commonChunk'];
     delete options['resourcesOutputPath'];
@@ -266,7 +263,10 @@ async function convertProjectTargets(
   return true;
 }
 
-function getTargetsToConvert(targets: Record<string, TargetConfiguration>): {
+function getTargetsToConvert(
+  targets: Record<string, TargetConfiguration>,
+  angularVersion: string
+): {
   buildTargetName?: string;
   serverTargetName?: string;
 } {
@@ -286,7 +286,7 @@ function getTargetsToConvert(targets: Record<string, TargetConfiguration>): {
     // build target
     if (executorsToConvert.has(targets[target].executor)) {
       for (const [, options] of allTargetOptions(targets[target])) {
-        if (options.deployUrl) {
+        if (lt(angularVersion, '17.3.0') && options.deployUrl) {
           logger.warn(
             `The project is using the "deployUrl" option which is not available in the application builder. Skipping conversion.`
           );

@@ -13,7 +13,9 @@ import {
   updateNxJson,
   runTasksInSerial,
   GeneratorCallback,
+  readJson,
 } from '@nx/devkit';
+import { assertNotUsingTsSolutionSetup } from '@nx/js/src/utils/typescript/ts-solution-setup';
 import { installedCypressVersion } from '../../utils/cypress-version';
 
 import {
@@ -42,8 +44,10 @@ export async function componentConfigurationGeneratorInternal(
   tree: Tree,
   options: CypressComponentConfigurationSchema
 ) {
+  assertNotUsingTsSolutionSetup(tree, 'cypress', 'component-configuration');
+
   const tasks: GeneratorCallback[] = [];
-  const opts = normalizeOptions(options);
+  const opts = normalizeOptions(tree, options);
 
   tasks.push(
     await init(tree, {
@@ -78,7 +82,10 @@ export async function componentConfigurationGeneratorInternal(
   return runTasksInSerial(...tasks);
 }
 
-function normalizeOptions(options: CypressComponentConfigurationSchema) {
+function normalizeOptions(
+  tree: Tree,
+  options: CypressComponentConfigurationSchema
+) {
   const cyVersion = installedCypressVersion();
   if (cyVersion && cyVersion < 10) {
     throw new Error(
@@ -86,9 +93,15 @@ function normalizeOptions(options: CypressComponentConfigurationSchema) {
     );
   }
 
+  const nxJson = readNxJson(tree);
+  const addPlugin =
+    process.env.NX_ADD_PLUGINS !== 'false' &&
+    nxJson.useInferencePlugins !== false;
+
   return {
-    addPlugin: process.env.NX_ADD_PLUGINS !== 'false',
+    addPlugin,
     ...options,
+    framework: options.framework ?? null,
     directory: options.directory ?? 'cypress',
   };
 }
@@ -127,6 +140,7 @@ function addProjectFiles(
       ...opts,
       projectRoot: projectConfig.root,
       offsetFromRoot: offsetFromRoot(projectConfig.root),
+      linter: isEslintInstalled(tree) ? 'eslint' : 'none',
       ext: '',
     }
   );
@@ -188,14 +202,13 @@ export function updateTsConfigForComponentTesting(
   tree: Tree,
   projectConfig: ProjectConfiguration
 ) {
-  const tsConfigPath = joinPathFragments(
-    projectConfig.root,
-    projectConfig.projectType === 'library'
-      ? 'tsconfig.lib.json'
-      : 'tsconfig.app.json'
-  );
+  let tsConfigPath: string | null = null;
+  for (const candidate of ['tsconfig.lib.json', 'tsconfig.app.json']) {
+    const p = joinPathFragments(projectConfig.root, candidate);
+    if (tree.exists(p)) tsConfigPath = p;
+  }
 
-  if (tree.exists(tsConfigPath)) {
+  if (tsConfigPath !== null) {
     updateJson(tree, tsConfigPath, (json) => {
       const excluded = new Set([
         ...(json.exclude || []),
@@ -241,6 +254,11 @@ export function updateTsConfigForComponentTesting(
       return json;
     });
   }
+}
+
+function isEslintInstalled(tree: Tree): boolean {
+  const { dependencies, devDependencies } = readJson(tree, 'package.json');
+  return !!(dependencies?.eslint || devDependencies?.eslint);
 }
 
 export default componentConfigurationGenerator;

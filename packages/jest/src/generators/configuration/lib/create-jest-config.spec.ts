@@ -9,7 +9,6 @@ jest.mock('@nx/devkit', () => ({
 import {
   addProjectConfiguration as _addProjectConfiguration,
   readProjectConfiguration,
-  stripIndents,
   type ProjectConfiguration,
   type ProjectGraph,
   type Tree,
@@ -49,24 +48,16 @@ describe('createJestConfig', () => {
     await createJestConfig(tree, { js: true }, 'js');
 
     expect(tree.exists('jest.config.js')).toBeTruthy();
-    expect(
-      stripIndents`${tree.read('jest.config.js', 'utf-8')}`
-    ).toMatchSnapshot();
-    expect(
-      stripIndents`${tree.read('jest.preset.js', 'utf-8')}`
-    ).toMatchSnapshot();
+    expect(tree.read('jest.config.js', 'utf-8')).toMatchSnapshot();
+    expect(tree.read('jest.preset.js', 'utf-8')).toMatchSnapshot();
   });
 
   it('should generate files ', async () => {
     await createJestConfig(tree, {}, 'js');
 
     expect(tree.exists('jest.config.ts')).toBeTruthy();
-    expect(
-      stripIndents`${tree.read('jest.config.ts', 'utf-8')}`
-    ).toMatchSnapshot();
-    expect(
-      stripIndents`${tree.read('jest.preset.js', 'utf-8')}`
-    ).toMatchSnapshot();
+    expect(tree.read('jest.config.ts', 'utf-8')).toMatchSnapshot();
+    expect(tree.read('jest.preset.js', 'utf-8')).toMatchSnapshot();
   });
 
   it('should not override existing files', async () => {
@@ -83,7 +74,7 @@ describe('createJestConfig', () => {
         },
       },
     });
-    const expected = stripIndents`
+    const expected = `
 import { getJestProjects } from '@nx/jest';
 export default {
   projects: getJestProjects(),
@@ -162,11 +153,11 @@ export default {
         "
       `);
       expect(tree.read('jest.config.ts', 'utf-8'))
-        .toEqual(`import { getJestProjects } from '@nx/jest';
+        .toEqual(`import { getJestProjectsAsync } from '@nx/jest';
 
-export default {
-projects: getJestProjects()
-};`);
+export default async () => ({
+  projects: await getJestProjectsAsync()
+});`);
       expect(readProjectConfiguration(tree, 'my-project').targets.test)
         .toMatchInlineSnapshot(`
         {
@@ -214,11 +205,11 @@ module.exports = {
 
       expect(tree.exists('jest.config.app.js')).toBeTruthy();
       expect(tree.read('jest.config.js', 'utf-8'))
-        .toEqual(`const { getJestProjects } = require('@nx/jest');
+        .toEqual(`const { getJestProjectsAsync } = require('@nx/jest');
 
-module.exports = {
-projects: getJestProjects()
-};`);
+module.exports = async () => ({
+  projects: await getJestProjectsAsync()
+});`);
     });
   });
 });

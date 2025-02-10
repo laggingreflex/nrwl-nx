@@ -10,14 +10,9 @@ import {
   resolveSchema,
 } from '../../config/schema-utils';
 import { readJsonFile } from '../../utils/fileutils';
-import { readPluginPackageJson } from '../../utils/nx-plugin';
+import { readPluginPackageJson } from '../../project-graph/plugins';
 
-export function getGeneratorInformation(
-  collectionName: string,
-  generatorName: string,
-  root: string | null,
-  projects: Record<string, ProjectConfiguration>
-): {
+export type GeneratorInformation = {
   resolvedCollectionName: string;
   normalizedGeneratorName: string;
   schema: any;
@@ -25,7 +20,14 @@ export function getGeneratorInformation(
   isNgCompat: boolean;
   isNxGenerator: boolean;
   generatorConfiguration: GeneratorsJsonEntry;
-} {
+};
+
+export function getGeneratorInformation(
+  collectionName: string,
+  generatorName: string,
+  root: string | null,
+  projects: Record<string, ProjectConfiguration>
+): GeneratorInformation {
   try {
     const {
       generatorsFilePath,
@@ -38,7 +40,12 @@ export function getGeneratorInformation(
       generatorsJson.generators?.[normalizedGeneratorName] ||
       generatorsJson.schematics?.[normalizedGeneratorName];
     const isNgCompat = !generatorsJson.generators?.[normalizedGeneratorName];
-    const schemaPath = resolveSchema(generatorConfig.schema, generatorsDir);
+    const schemaPath = resolveSchema(
+      generatorConfig.schema,
+      generatorsDir,
+      collectionName,
+      projects
+    );
     const schema = readJsonFile(schemaPath);
     if (!schema.properties || typeof schema.properties !== 'object') {
       schema.properties = {};
@@ -47,7 +54,9 @@ export function getGeneratorInformation(
       generatorConfig.implementation || generatorConfig.factory;
     const implementationFactory = getImplementationFactory<Generator>(
       generatorConfig.implementation,
-      generatorsDir
+      generatorsDir,
+      collectionName,
+      projects
     );
     const normalizedGeneratorConfiguration: GeneratorsJsonEntry = {
       ...generatorConfig,

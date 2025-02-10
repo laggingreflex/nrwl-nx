@@ -1,8 +1,13 @@
+import 'nx/src/internal-testing-utils/mock-project-graph';
+
 import {
   getProjects,
   readJson,
+  readNxJson,
   readProjectConfiguration,
   Tree,
+  updateJson,
+  writeJson,
 } from '@nx/devkit';
 import { createTreeWithEmptyWorkspace } from '@nx/devkit/testing';
 import { Linter } from '@nx/eslint';
@@ -18,14 +23,13 @@ describe('app', () => {
 
   it('should update workspace', async () => {
     await expoApplicationGenerator(appTree, {
-      name: 'my-app',
+      directory: 'my-app',
       displayName: 'myApp',
       linter: Linter.EsLint,
       e2eTestRunner: 'none',
       skipFormat: false,
       js: false,
       unitTestRunner: 'none',
-      projectNameAndRootFormat: 'as-provided',
     });
     const projects = getProjects(appTree);
 
@@ -34,7 +38,7 @@ describe('app', () => {
 
   it('should update nx.json', async () => {
     await expoApplicationGenerator(appTree, {
-      name: 'my-app',
+      directory: 'my-app',
       displayName: 'myApp',
       tags: 'one,two',
       linter: Linter.EsLint,
@@ -42,7 +46,6 @@ describe('app', () => {
       skipFormat: false,
       js: false,
       unitTestRunner: 'none',
-      projectNameAndRootFormat: 'as-provided',
     });
 
     const projectConfiguration = readProjectConfiguration(appTree, 'my-app');
@@ -53,14 +56,13 @@ describe('app', () => {
 
   it('should generate files', async () => {
     await expoApplicationGenerator(appTree, {
-      name: 'my-app',
+      directory: 'my-app',
       displayName: 'myApp',
       linter: Linter.EsLint,
       e2eTestRunner: 'none',
       skipFormat: false,
       js: false,
       unitTestRunner: 'jest',
-      projectNameAndRootFormat: 'as-provided',
     });
     expect(appTree.exists('my-app/src/app/App.tsx')).toBeTruthy();
     expect(appTree.exists('my-app/src/app/App.spec.tsx')).toBeTruthy();
@@ -73,14 +75,13 @@ describe('app', () => {
 
   it('should generate js files', async () => {
     await expoApplicationGenerator(appTree, {
-      name: 'my-app',
+      directory: 'my-app',
       displayName: 'myApp',
       linter: Linter.EsLint,
       e2eTestRunner: 'none',
       skipFormat: false,
       js: true,
       unitTestRunner: 'jest',
-      projectNameAndRootFormat: 'as-provided',
     });
     expect(appTree.exists('my-app/src/app/App.js')).toBeTruthy();
     expect(appTree.exists('my-app/src/app/App.spec.js')).toBeTruthy();
@@ -101,7 +102,6 @@ describe('app', () => {
         js: false,
         skipFormat: false,
         unitTestRunner: 'none',
-        projectNameAndRootFormat: 'as-provided',
       });
 
       expect(appTree.exists('my-dir-e2e/.detoxrc.json')).toBeTruthy();
@@ -136,7 +136,7 @@ describe('app', () => {
           binaryPath:
             '../my-dir/ios/build/Build/Products/Debug-iphonesimulator/MyApp.app',
           build:
-            "cd ../my-dir/ios && xcodebuild -workspace MyApp.xcworkspace -scheme MyApp -configuration Debug -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 14' -derivedDataPath ./build -quiet",
+            "cd ../my-dir/ios && xcodebuild -workspace MyApp.xcworkspace -scheme MyApp -configuration Debug -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 15 Plus' -derivedDataPath ./build -quiet",
           type: 'ios.app',
         },
         'ios.local': {
@@ -149,7 +149,7 @@ describe('app', () => {
           binaryPath:
             '../my-dir/ios/build/Build/Products/Release-iphonesimulator/MyApp.app',
           build:
-            "cd ../my-dir/ios && xcodebuild -workspace MyApp.xcworkspace -scheme MyApp -configuration Release -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 14' -derivedDataPath ./build -quiet",
+            "cd ../my-dir/ios && xcodebuild -workspace MyApp.xcworkspace -scheme MyApp -configuration Release -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 15 Plus' -derivedDataPath ./build -quiet",
           type: 'ios.app',
         },
       });
@@ -157,13 +157,12 @@ describe('app', () => {
 
     it('should create e2e app without directory', async () => {
       await expoApplicationGenerator(appTree, {
-        name: 'my-app',
+        directory: 'my-app',
         linter: Linter.EsLint,
         e2eTestRunner: 'detox',
         js: false,
         skipFormat: false,
         unitTestRunner: 'none',
-        projectNameAndRootFormat: 'as-provided',
       });
 
       expect(appTree.exists('my-app-e2e/.detoxrc.json')).toBeTruthy();
@@ -197,7 +196,7 @@ describe('app', () => {
           binaryPath:
             '../my-app/ios/build/Build/Products/Debug-iphonesimulator/MyApp.app',
           build:
-            "cd ../my-app/ios && xcodebuild -workspace MyApp.xcworkspace -scheme MyApp -configuration Debug -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 14' -derivedDataPath ./build -quiet",
+            "cd ../my-app/ios && xcodebuild -workspace MyApp.xcworkspace -scheme MyApp -configuration Debug -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 15 Plus' -derivedDataPath ./build -quiet",
           type: 'ios.app',
         },
         'ios.local': {
@@ -210,7 +209,7 @@ describe('app', () => {
           binaryPath:
             '../my-app/ios/build/Build/Products/Release-iphonesimulator/MyApp.app',
           build:
-            "cd ../my-app/ios && xcodebuild -workspace MyApp.xcworkspace -scheme MyApp -configuration Release -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 14' -derivedDataPath ./build -quiet",
+            "cd ../my-app/ios && xcodebuild -workspace MyApp.xcworkspace -scheme MyApp -configuration Release -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 15 Plus' -derivedDataPath ./build -quiet",
           type: 'ios.app',
         },
       });
@@ -218,7 +217,7 @@ describe('app', () => {
 
     it('should create e2e app with display name', async () => {
       await expoApplicationGenerator(appTree, {
-        name: 'my-app',
+        directory: 'my-app',
         displayName: 'my app name',
         linter: Linter.EsLint,
         e2eTestRunner: 'detox',
@@ -261,7 +260,7 @@ describe('app', () => {
           binaryPath:
             '../my-app/ios/build/Build/Products/Debug-iphonesimulator/MyApp.app',
           build:
-            "cd ../my-app/ios && xcodebuild -workspace MyApp.xcworkspace -scheme MyApp -configuration Debug -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 14' -derivedDataPath ./build -quiet",
+            "cd ../my-app/ios && xcodebuild -workspace MyApp.xcworkspace -scheme MyApp -configuration Debug -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 15 Plus' -derivedDataPath ./build -quiet",
           type: 'ios.app',
         },
         'ios.local': {
@@ -274,10 +273,208 @@ describe('app', () => {
           binaryPath:
             '../my-app/ios/build/Build/Products/Release-iphonesimulator/MyApp.app',
           build:
-            "cd ../my-app/ios && xcodebuild -workspace MyApp.xcworkspace -scheme MyApp -configuration Release -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 14' -derivedDataPath ./build -quiet",
+            "cd ../my-app/ios && xcodebuild -workspace MyApp.xcworkspace -scheme MyApp -configuration Release -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 15 Plus' -derivedDataPath ./build -quiet",
           type: 'ios.app',
         },
       });
+    });
+  });
+
+  describe('cypress', () => {
+    it('should create e2e app with e2e-ci targetDefaults', async () => {
+      await expoApplicationGenerator(appTree, {
+        name: 'my-app',
+        directory: 'my-dir',
+        linter: Linter.EsLint,
+        e2eTestRunner: 'cypress',
+        js: false,
+        skipFormat: false,
+        unitTestRunner: 'none',
+        addPlugin: true,
+      });
+
+      // ASSERT
+      const nxJson = readNxJson(appTree);
+      expect(nxJson.targetDefaults['e2e-ci--**/*']).toMatchInlineSnapshot(`
+        {
+          "dependsOn": [
+            "^export",
+          ],
+        }
+      `);
+    });
+  });
+
+  describe('playwright', () => {
+    it('should create e2e app with e2e-ci targetDefaults', async () => {
+      await expoApplicationGenerator(appTree, {
+        name: 'my-app',
+        directory: 'my-dir',
+        linter: Linter.EsLint,
+        e2eTestRunner: 'playwright',
+        js: false,
+        skipFormat: false,
+        unitTestRunner: 'none',
+        addPlugin: true,
+      });
+
+      // ASSERT
+      const nxJson = readNxJson(appTree);
+      expect(nxJson.targetDefaults['e2e-ci--**/*']).toMatchInlineSnapshot(`
+        {
+          "dependsOn": [
+            "^export",
+          ],
+        }
+      `);
+    });
+  });
+
+  describe('TS solution setup', () => {
+    it('should add project references when using TS solution', async () => {
+      const tree = createTreeWithEmptyWorkspace();
+      tree.write('.gitignore', '');
+      updateJson(tree, 'package.json', (json) => {
+        json.workspaces = ['packages/*', 'apps/*'];
+        return json;
+      });
+      writeJson(tree, 'tsconfig.base.json', {
+        compilerOptions: {
+          composite: true,
+          declaration: true,
+        },
+      });
+      writeJson(tree, 'tsconfig.json', {
+        extends: './tsconfig.base.json',
+        files: [],
+        references: [],
+      });
+
+      await expoApplicationGenerator(tree, {
+        directory: 'my-app',
+        displayName: 'myApp',
+        linter: Linter.EsLint,
+        e2eTestRunner: 'none',
+        skipFormat: false,
+        js: false,
+        unitTestRunner: 'jest',
+        addPlugin: true,
+      });
+
+      expect(readJson(tree, 'tsconfig.json').references).toMatchInlineSnapshot(`
+        [
+          {
+            "path": "./my-app",
+          },
+        ]
+      `);
+      // Make sure keys are in idiomatic order
+      expect(Object.keys(readJson(tree, 'my-app/package.json')))
+        .toMatchInlineSnapshot(`
+        [
+          "name",
+          "version",
+          "private",
+          "nx",
+        ]
+      `);
+      expect(readJson(tree, 'my-app/tsconfig.json')).toMatchInlineSnapshot(`
+        {
+          "extends": "../tsconfig.base.json",
+          "files": [],
+          "include": [],
+          "references": [
+            {
+              "path": "./tsconfig.app.json",
+            },
+            {
+              "path": "./tsconfig.spec.json",
+            },
+          ],
+        }
+      `);
+      expect(readJson(tree, 'my-app/tsconfig.app.json')).toMatchInlineSnapshot(`
+        {
+          "compilerOptions": {
+            "jsx": "react-jsx",
+            "module": "esnext",
+            "moduleResolution": "bundler",
+            "noUnusedLocals": false,
+            "outDir": "out-tsc/my-app",
+            "rootDir": "src",
+            "tsBuildInfoFile": "out-tsc/my-app/tsconfig.app.tsbuildinfo",
+            "types": [
+              "node",
+            ],
+          },
+          "exclude": [
+            "out-tsc",
+            "dist",
+            "**/*.test.ts",
+            "**/*.spec.ts",
+            "**/*.test.tsx",
+            "**/*.spec.tsx",
+            "**/*.test.js",
+            "**/*.spec.js",
+            "**/*.test.jsx",
+            "**/*.spec.jsx",
+            "src/test-setup.ts",
+            "jest.config.ts",
+            "src/**/*.spec.ts",
+            "src/**/*.test.ts",
+            "eslint.config.js",
+            "eslint.config.cjs",
+            "eslint.config.mjs",
+          ],
+          "extends": "../tsconfig.base.json",
+          "files": [
+            "../node_modules/@nx/expo/typings/svg.d.ts",
+          ],
+          "include": [
+            "**/*.ts",
+            "**/*.tsx",
+            "**/*.js",
+            "**/*.jsx",
+          ],
+        }
+      `);
+      expect(readJson(tree, 'my-app/tsconfig.spec.json'))
+        .toMatchInlineSnapshot(`
+        {
+          "compilerOptions": {
+            "jsx": "react-jsx",
+            "module": "esnext",
+            "moduleResolution": "bundler",
+            "noUnusedLocals": false,
+            "outDir": "./out-tsc/jest",
+            "types": [
+              "jest",
+              "node",
+            ],
+          },
+          "extends": "../tsconfig.base.json",
+          "files": [
+            "src/test-setup.ts",
+          ],
+          "include": [
+            "jest.config.ts",
+            "src/**/*.test.ts",
+            "src/**/*.spec.ts",
+            "src/**/*.test.tsx",
+            "src/**/*.spec.tsx",
+            "src/**/*.test.js",
+            "src/**/*.spec.js",
+            "src/**/*.test.jsx",
+            "src/**/*.spec.jsx",
+            "src/**/*.d.ts",
+          ],
+          "references": [
+            {
+              "path": "./tsconfig.app.json",
+            },
+          ],
+        }
+      `);
     });
   });
 });

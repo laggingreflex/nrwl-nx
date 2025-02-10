@@ -1,29 +1,38 @@
-import type { AST } from 'jsonc-eslint-parser';
 import type { TSESLint } from '@typescript-eslint/utils';
 import { ESLintUtils } from '@typescript-eslint/utils';
+import type { AST } from 'jsonc-eslint-parser';
 
 import {
   ProjectGraphProjectNode,
   readJsonFile,
   workspaceRoot,
 } from '@nx/devkit';
-import { findProject, getSourceFilePath } from '../utils/runtime-lint-utils';
-import { existsSync } from 'fs';
+import { getRootTsConfigPath } from '@nx/js';
 import { registerTsProject } from '@nx/js/src/internal';
 import * as path from 'path';
-import { join } from 'path';
-import { readProjectGraph } from '../utils/project-graph-utils';
 import { valid } from 'semver';
+import { readProjectGraph } from '../utils/project-graph-utils';
+import {
+  findProject,
+  getParserServices,
+  getSourceFilePath,
+} from '../utils/runtime-lint-utils';
 
-type Options = [
+export type Options = [
   {
     generatorsJson?: string;
     executorsJson?: string;
     migrationsJson?: string;
     packageJson?: string;
     allowedVersionStrings: string[];
+    tsConfig?: string;
   }
 ];
+
+type NormalizedOptions = Options[0] & {
+  rootDir?: string;
+  outDir?: string;
+};
 
 const DEFAULT_OPTIONS: Options[0] = {
   generatorsJson: 'generators.json',
@@ -31,6 +40,7 @@ const DEFAULT_OPTIONS: Options[0] = {
   migrationsJson: 'migrations.json',
   packageJson: 'package.json',
   allowedVersionStrings: ['*', 'latest', 'next'],
+  tsConfig: 'tsconfig.lib.json',
 };
 
 export type MessageIds =
@@ -53,7 +63,6 @@ export default ESLintUtils.RuleCreator(() => ``)<Options, MessageIds>({
   meta: {
     docs: {
       description: 'Checks common nx-plugin configuration files for validity',
-      recommended: 'recommended',
     },
     schema: [
       {
@@ -85,6 +94,11 @@ export default ESLintUtils.RuleCreator(() => ``)<Options, MessageIds>({
               'A list of specifiers that are valid for versions within package group. Defaults to ["*", "latest", "next"]',
             items: { type: 'string' },
           },
+          tsConfig: {
+            type: 'string',
+            description:
+              'The path to the tsconfig file used to build the plugin. Defaults to "tsconfig.lib.json".',
+          },
         },
         additionalProperties: false,
       },
@@ -113,14 +127,14 @@ export default ESLintUtils.RuleCreator(() => ``)<Options, MessageIds>({
   defaultOptions: [DEFAULT_OPTIONS],
   create(context) {
     // jsonc-eslint-parser adds this property to parserServices where appropriate
-    if (!(context.parserServices as any).isJSON) {
+    if (!getParserServices(context).isJSON) {
       return {};
     }
 
     const { projectGraph, projectRootMappings } = readProjectGraph(RULE_NAME);
 
     const sourceFilePath = getSourceFilePath(
-      context.getFilename(),
+      context.filename ?? context.getFilename(),
       workspaceRoot
     );
 
@@ -147,7 +161,7 @@ export default ESLintUtils.RuleCreator(() => ``)<Options, MessageIds>({
     }
 
     if (!(global as any).tsProjectRegistered) {
-      registerTsProject(join(workspaceRoot, 'tsconfig.base.json'));
+      registerTsProject(getRootTsConfigPath());
       (global as any).tsProjectRegistered = true;
     }
 
@@ -156,11 +170,11 @@ export default ESLintUtils.RuleCreator(() => ``)<Options, MessageIds>({
         node: AST.JSONObjectExpression
       ) {
         if (sourceFilePath === generatorsJson) {
-          checkCollectionFileNode(node, 'generator', context);
+          checkCollectionFileNode(node, 'generator', context, options);
         } else if (sourceFilePath === migrationsJson) {
-          checkCollectionFileNode(node, 'migration', context);
+          checkCollectionFileNode(node, 'migration', context, options);
         } else if (sourceFilePath === executorsJson) {
-          checkCollectionFileNode(node, 'executor', context);
+          checkCollectionFileNode(node, 'executor', context, options);
         } else if (sourceFilePath === packageJson) {
           validatePackageGroup(node, context);
         }
@@ -172,8 +186,33 @@ export default ESLintUtils.RuleCreator(() => ``)<Options, MessageIds>({
 function normalizeOptions(
   sourceProject: ProjectGraphProjectNode,
   options: Options[0]
-): Options[0] {
+): NormalizedOptions {
+  let rootDir: string;
+  let outDir: string;
   const base = { ...DEFAULT_OPTIONS, ...options };
+  let runtimeTsConfig: string;
+
+  if (sourceProject.data.targets?.build?.executor === '@nx/js:tsc') {
+    rootDir = sourceProject.data.targets.build.options.rootDir;
+    outDir = sourceProject.data.targets.build.options.outputPath;
+  }
+
+  if (!rootDir && !outDir) {
+    try {
+      runtimeTsConfig = require.resolve(
+        path.join(workspaceRoot, sourceProject.data.root, base.tsConfig)
+      );
+      const tsConfig = readJsonFile(runtimeTsConfig);
+      rootDir ??= tsConfig.compilerOptions?.rootDir
+        ? path.join(sourceProject.data.root, tsConfig.compilerOptions.rootDir)
+        : undefined;
+      outDir ??= tsConfig.compilerOptions?.outDir
+        ? path.join(sourceProject.data.root, tsConfig.compilerOptions.outDir)
+        : undefined;
+    } catch {
+      // nothing
+    }
+  }
   const pathPrefix =
     sourceProject.data.root !== '.' ? `${sourceProject.data.root}/` : '';
   return {
@@ -190,13 +229,16 @@ function normalizeOptions(
     packageJson: base.packageJson
       ? `${pathPrefix}${base.packageJson}`
       : undefined,
+    rootDir,
+    outDir,
   };
 }
 
 export function checkCollectionFileNode(
   baseNode: AST.JSONObjectExpression,
   mode: 'migration' | 'generator' | 'executor',
-  context: TSESLint.RuleContext<MessageIds, Options>
+  context: TSESLint.RuleContext<MessageIds, Options>,
+  options: NormalizedOptions
 ) {
   const schematicsRootNode = baseNode.properties.find(
     (x) => x.key.type === 'JSONLiteral' && x.key.value === 'schematics'
@@ -243,7 +285,7 @@ export function checkCollectionFileNode(
         node: schematicsRootNode as any,
       });
     } else {
-      checkCollectionNode(collectionNode.value, mode, context);
+      checkCollectionNode(collectionNode.value, mode, context, options);
     }
   }
 }
@@ -251,7 +293,8 @@ export function checkCollectionFileNode(
 export function checkCollectionNode(
   baseNode: AST.JSONObjectExpression,
   mode: 'migration' | 'generator' | 'executor',
-  context: TSESLint.RuleContext<MessageIds, Options>
+  context: TSESLint.RuleContext<MessageIds, Options>,
+  options: NormalizedOptions
 ) {
   const entries = baseNode.properties;
 
@@ -267,7 +310,8 @@ export function checkCollectionNode(
         entryNode.value,
         entryNode.key.value.toString(),
         mode,
-        context
+        context,
+        options
       );
     }
   }
@@ -277,8 +321,9 @@ export function validateEntry(
   baseNode: AST.JSONObjectExpression,
   key: string,
   mode: 'migration' | 'generator' | 'executor',
-  context: TSESLint.RuleContext<MessageIds, Options>
-) {
+  context: TSESLint.RuleContext<MessageIds, Options>,
+  options: NormalizedOptions
+): void {
   const schemaNode = baseNode.properties.find(
     (x) => x.key.type === 'JSONLiteral' && x.key.value === 'schema'
   );
@@ -300,24 +345,29 @@ export function validateEntry(
         node: schemaNode.value as any,
       });
     } else {
+      let validJsonFound = false;
       const schemaFilePath = path.join(
-        path.dirname(context.getFilename()),
+        path.dirname(context.filename ?? context.getFilename()),
         schemaNode.value.value
       );
-      if (!existsSync(schemaFilePath)) {
+      try {
+        readJsonFile(schemaFilePath);
+        validJsonFound = true;
+      } catch {
+        try {
+          // Try to map back to source, which will be the case with TS solution setup.
+          readJsonFile(schemaFilePath.replace(options.outDir, options.rootDir));
+          validJsonFound = true;
+        } catch {
+          // nothing, will be reported below
+        }
+      }
+
+      if (!validJsonFound) {
         context.report({
           messageId: 'invalidSchemaPath',
           node: schemaNode.value as any,
         });
-      } else {
-        try {
-          readJsonFile(schemaFilePath);
-        } catch (e) {
-          context.report({
-            messageId: 'invalidSchemaPath',
-            node: schemaNode.value as any,
-          });
-        }
       }
     }
   }
@@ -336,7 +386,7 @@ export function validateEntry(
       node: baseNode as any,
     });
   } else {
-    validateImplemenationNode(implementationNode, key, context);
+    validateImplementationNode(implementationNode, key, context, options);
   }
 
   if (mode === 'migration') {
@@ -377,10 +427,11 @@ export function validateEntry(
   }
 }
 
-export function validateImplemenationNode(
+export function validateImplementationNode(
   implementationNode: AST.JSONProperty,
   key: string,
-  context: TSESLint.RuleContext<MessageIds, Options>
+  context: TSESLint.RuleContext<MessageIds, Options>,
+  options: NormalizedOptions
 ) {
   if (
     implementationNode.value.type !== 'JSONLiteral' ||
@@ -399,13 +450,23 @@ export function validateImplemenationNode(
     let resolvedPath: string;
 
     const modulePath = path.join(
-      path.dirname(context.getFilename()),
+      path.dirname(context.filename ?? context.getFilename()),
       implementationPath
     );
 
     try {
       resolvedPath = require.resolve(modulePath);
-    } catch (e) {
+    } catch {
+      try {
+        resolvedPath = require.resolve(
+          modulePath.replace(options.outDir, options.rootDir)
+        );
+      } catch {
+        // nothing, will be reported below
+      }
+    }
+
+    if (!resolvedPath) {
       context.report({
         messageId: 'invalidImplementationPath',
         data: {

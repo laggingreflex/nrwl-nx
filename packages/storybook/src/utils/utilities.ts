@@ -1,9 +1,4 @@
-import {
-  TargetConfiguration,
-  Tree,
-  readNxJson,
-  updateNxJson,
-} from '@nx/devkit';
+import { TargetConfiguration, Tree } from '@nx/devkit';
 import { CompilerOptions } from 'typescript';
 import { statSync } from 'fs';
 import { findNodes } from '@nx/js';
@@ -136,18 +131,6 @@ export function findStorybookAndBuildTargetsAndCompiler(targets: {
     '@nx/angular:webpack-browser',
     '@nx/esbuild:esbuild',
     '@nx/next:build',
-    '@nrwl/js:babel',
-    '@nrwl/js:swc',
-    '@nrwl/js:tsc',
-    '@nrwl/webpack:webpack',
-    '@nrwl/rollup:rollup',
-    '@nrwl/web:rollup',
-    '@nrwl/vite:build',
-    '@nrwl/angular:ng-packagr-lite',
-    '@nrwl/angular:package',
-    '@nrwl/angular:webpack-browser',
-    '@nrwl/esbuild:esbuild',
-    '@nrwl/next:build',
     '@nxext/vite:build',
     '@angular-devkit/build-angular:application',
     '@angular-devkit/build-angular:browser',
@@ -185,14 +168,12 @@ export function findStorybookAndBuildTargetsAndCompiler(targets: {
       returnObject.compiler = targets[target].options?.compiler;
     } else if (
       targets[target].executor === '@storybook/angular:start-storybook' ||
-      targets[target].executor === '@nrwl/storybook:storybook' ||
       targets[target].executor === '@nx/storybook:storybook'
     ) {
       returnObject.storybookTarget = target;
     } else if (
       targets[target].executor === '@storybook/angular:build-storybook' ||
-      targets[target].executor === '@nx/storybook:build' ||
-      targets[target].executor === '@nrwl/storybook:build'
+      targets[target].executor === '@nx/storybook:build'
     ) {
       returnObject.storybookBuildTarget = target;
     } else if (targets[target].options?.compiler) {
@@ -268,36 +249,10 @@ export function getTsSourceFile(host: Tree, path: string): ts.SourceFile {
 
 export function pleaseUpgrade(): string {
   return `
-    Storybook 6 is no longer maintained, and not supported in Nx. 
+    Storybook 6 and lower are no longer maintained, and not supported in Nx. 
     Please upgrade to Storybook 7.
 
     Here is a guide on how to upgrade:
     https://nx.dev/nx-api/storybook/generators/migrate-7
     `;
-}
-
-export function addPlugin(tree: Tree) {
-  const nxJson = readNxJson(tree);
-  nxJson.plugins ??= [];
-
-  for (const plugin of nxJson.plugins) {
-    if (
-      typeof plugin === 'string'
-        ? plugin === '@nx/storybook/plugin'
-        : plugin.plugin === '@nx/storybook/plugin'
-    ) {
-      return;
-    }
-  }
-
-  nxJson.plugins.push({
-    plugin: '@nx/storybook/plugin',
-    options: {
-      buildStorybookTargetName: 'build-storybook',
-      serveStorybookTargetName: 'storybook',
-      testStorybookTargetName: 'test-storybook',
-      staticStorybookTargetName: 'static-storybook',
-    },
-  });
-  updateNxJson(tree, nxJson);
 }

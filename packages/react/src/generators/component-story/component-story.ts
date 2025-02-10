@@ -11,7 +11,7 @@ import {
   findExportDeclarationsForJsx,
   getComponentNode,
 } from '../../utils/ast-utils';
-import { getDefaultsForComponent } from '../../utils/component-props';
+import { getComponentPropDefaults } from '../../utils/component-props';
 import { ensureTypescript } from '@nx/js/src/utils/typescript/ensure-typescript';
 
 let tsModule: typeof import('typescript');
@@ -31,9 +31,11 @@ export function createComponentStoriesFile(
     tsModule = ensureTypescript();
   }
   const proj = getProjects(host).get(project);
-  const sourceRoot = proj.sourceRoot;
 
-  const componentFilePath = joinPathFragments(sourceRoot, componentPath);
+  const componentFilePath = joinPathFragments(
+    proj.sourceRoot ?? proj.root,
+    componentPath
+  );
 
   const componentDirectory = componentFilePath.replace(
     componentFilePath.slice(componentFilePath.lastIndexOf('/')),
@@ -108,7 +110,7 @@ export function findPropsAndGenerateFile(
   isPlainJs: boolean,
   fromNodeArray?: boolean
 ) {
-  const { propsTypeName, props, argTypes } = getDefaultsForComponent(
+  const { props, argTypes } = getComponentPropDefaults(
     sourceFile,
     cmpDeclaration
   );
@@ -123,7 +125,6 @@ export function findPropsAndGenerateFile(
         ? `${name}--${(cmpDeclaration as any).name.text}`
         : name,
       componentImportFileName: name,
-      propsTypeName,
       props,
       argTypes,
       componentName: (cmpDeclaration as any).name.text,

@@ -1,1 +1,5 @@
-export { createNodes, ReactNativePluginOptions } from './plugins/plugin';
+export {
+  createNodes,
+  createNodesV2,
+  ReactNativePluginOptions,
+} from './plugins/plugin';

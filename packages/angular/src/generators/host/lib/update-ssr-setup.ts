@@ -21,33 +21,32 @@ export async function updateSsrSetup(
   appName: string,
   typescriptConfiguration: boolean
 ) {
+  const { major: angularMajorVersion } = getInstalledAngularVersionInfo(tree);
   let project = readProjectConfiguration(tree, appName);
 
   tree.rename(
     joinPathFragments(project.sourceRoot, 'main.server.ts'),
     joinPathFragments(project.sourceRoot, 'bootstrap.server.ts')
   );
+  const pathToServerEntry = joinPathFragments(
+    angularMajorVersion >= 19
+      ? project.sourceRoot ?? joinPathFragments(project.root, 'src')
+      : project.root,
+    'server.ts'
+  );
   tree.write(
-    joinPathFragments(project.root, 'server.ts'),
-    "import('./src/main.server');"
+    pathToServerEntry,
+    `import('./${angularMajorVersion >= 19 ? '' : 'src/'}main.server');`
   );
 
-  const { major: angularMajorVersion } = getInstalledAngularVersionInfo(tree);
-  generateFiles(
-    tree,
-    join(
-      __dirname,
-      '../files/common',
-      angularMajorVersion >= 17 ? 'v17+' : 'pre-v17'
-    ),
-    project.root,
-    {
-      appName,
-      browserBundleOutput: project.targets.build.options.outputPath,
-      standalone: options.standalone,
-      tmpl: '',
-    }
-  );
+  generateFiles(tree, join(__dirname, '../files/common'), project.root, {
+    appName,
+    browserBundleOutput: project.targets.build.options.outputPath,
+    standalone: options.standalone,
+    commonEngineEntryPoint:
+      angularMajorVersion >= 19 ? '@angular/ssr/node' : '@angular/ssr',
+    tmpl: '',
+  });
 
   const pathToTemplateFiles = typescriptConfiguration ? 'ts' : 'js';
 
@@ -71,21 +70,32 @@ export async function updateSsrSetup(
     ),
   };
 
+  if (
+    project.targets.server.configurations &&
+    project.targets.server.configurations.development
+  ) {
+    if ('vendorChunk' in project.targets.server.configurations.development) {
+      delete project.targets.server.configurations.development.vendorChunk;
+    }
+  }
+
   project.targets['serve-ssr'].executor =
     '@nx/angular:module-federation-dev-ssr';
 
   updateProjectConfiguration(tree, appName, project);
 
-  const installTask = addDependenciesToPackageJson(
-    tree,
-    {
-      cors: corsVersion,
-      '@module-federation/node': moduleFederationNodeVersion,
-    },
-    {
-      '@types/cors': typesCorsVersion,
-    }
-  );
+  if (!options.skipPackageJson) {
+    return addDependenciesToPackageJson(
+      tree,
+      {
+        cors: corsVersion,
+        '@module-federation/node': moduleFederationNodeVersion,
+      },
+      {
+        '@types/cors': typesCorsVersion,
+      }
+    );
+  }
 
-  return installTask;
+  return () => {};
 }

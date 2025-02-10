@@ -1,5 +1,19 @@
 import { normalizeOptions } from './normalize';
 import { ExecutorContext } from '@nx/devkit';
+import { readTsConfig } from '@nx/js';
+
+jest.mock<typeof import('@nx/js')>('@nx/js', () => {
+  const actualModule = jest.requireActual('@nx/js');
+
+  return {
+    ...actualModule,
+    readTsConfig: jest.fn(() => ({
+      fileNames: [],
+      errors: [],
+      options: {},
+    })),
+  };
+});
 
 describe('normalizeOptions', () => {
   const context: ExecutorContext = {
@@ -7,6 +21,15 @@ describe('normalizeOptions', () => {
     cwd: '/',
     isVerbose: false,
     projectName: 'myapp',
+    nxJsonConfiguration: {},
+    projectsConfigurations: {
+      version: 2,
+      projects: {
+        myapp: {
+          root: 'apps/myapp',
+        },
+      },
+    },
     projectGraph: {
       nodes: {
         myapp: {
@@ -43,6 +66,7 @@ describe('normalizeOptions', () => {
       singleEntry: true,
       external: [],
       thirdParty: false,
+      isTsSolutionSetup: false,
     });
   });
 
@@ -70,6 +94,7 @@ describe('normalizeOptions', () => {
       singleEntry: false,
       external: [],
       thirdParty: false,
+      isTsSolutionSetup: false,
     });
   });
 
@@ -96,6 +121,7 @@ describe('normalizeOptions', () => {
       singleEntry: true,
       external: [],
       thirdParty: false,
+      isTsSolutionSetup: false,
     });
   });
 
@@ -139,7 +165,33 @@ describe('normalizeOptions', () => {
       singleEntry: true,
       external: [],
       thirdParty: false,
+      isTsSolutionSetup: false,
     });
+  });
+
+  it("should use the tsconfig declaration option if the declaration option isn't defined", () => {
+    (
+      readTsConfig as jest.MockedFunction<typeof readTsConfig>
+    ).mockImplementationOnce(() => ({
+      fileNames: [],
+      errors: [],
+      options: {
+        declaration: true,
+      },
+    }));
+
+    expect(
+      normalizeOptions(
+        {
+          main: 'apps/myapp/src/index.ts',
+          outputPath: 'dist/apps/myapp',
+          tsConfig: 'apps/myapp/tsconfig.app.json',
+          generatePackageJson: true,
+          assets: [],
+        },
+        context
+      )
+    ).toEqual(expect.objectContaining({ declaration: true }));
   });
 
   it('should override thirdParty if bundle:false', () => {
@@ -157,5 +209,22 @@ describe('normalizeOptions', () => {
         context
       )
     ).toEqual(expect.objectContaining({ thirdParty: false }));
+  });
+
+  it('should override skipTypeCheck if declaration:true', () => {
+    expect(
+      normalizeOptions(
+        {
+          main: 'apps/myapp/src/index.ts',
+          outputPath: 'dist/apps/myapp',
+          tsConfig: 'apps/myapp/tsconfig.app.json',
+          generatePackageJson: true,
+          skipTypeCheck: true,
+          declaration: true,
+          assets: [],
+        },
+        context
+      )
+    ).toEqual(expect.objectContaining({ skipTypeCheck: false }));
   });
 });

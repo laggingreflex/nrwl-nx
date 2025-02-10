@@ -46,7 +46,6 @@ describe('nx release create github release', () => {
 
   beforeAll(async () => {
     newProject({
-      unsetProjectNameAndRootFormat: false,
       packages: ['@nx/js'],
     });
 
@@ -115,17 +114,18 @@ describe('nx release create github release', () => {
     const result = runCLI('release patch -d --first-release --verbose');
 
     expect(
-      result.match(new RegExp(`>  NX   Pushing to git remote`, 'g')).length
+      result.match(new RegExp(`NX   Pushing to git remote "origin"`, 'g'))
+        .length
     ).toEqual(1);
     expect(
-      result.match(new RegExp(`>  NX   Creating GitHub Release`, 'g')).length
+      result.match(new RegExp(`NX   Creating GitHub Release`, 'g')).length
     ).toEqual(1);
 
     // should have two occurrences of each - one for the changelog file, one for the github release
     expect(result.match(new RegExp(`### 🚀 Features`, 'g')).length).toEqual(2);
     expect(result.match(new RegExp(`### 🩹 Fixes`, 'g')).length).toEqual(2);
     expect(
-      result.match(new RegExp(`#### ⚠️  Breaking Changes`, 'g')).length
+      result.match(new RegExp(`### ⚠️  Breaking Changes`, 'g')).length
     ).toEqual(2);
   });
 
@@ -149,17 +149,18 @@ describe('nx release create github release', () => {
     const result = runCLI('release -d --first-release --verbose');
 
     expect(
-      result.match(new RegExp(`>  NX   Pushing to git remote`, 'g')).length
+      result.match(new RegExp(`NX   Pushing to git remote "origin"`, 'g'))
+        .length
     ).toEqual(1);
     expect(
-      result.match(new RegExp(`>  NX   Creating GitHub Release`, 'g')).length
+      result.match(new RegExp(`NX   Creating GitHub Release`, 'g')).length
     ).toEqual(3);
 
     // should have one occurrence of each because files are disabled
     expect(result.match(new RegExp(`### 🚀 Features`, 'g')).length).toEqual(2);
     expect(result.match(new RegExp(`### 🩹 Fixes`, 'g')).length).toEqual(1);
     expect(
-      result.match(new RegExp(`#### ⚠️  Breaking Changes`, 'g')).length
+      result.match(new RegExp(`### ⚠️  Breaking Changes`, 'g')).length
     ).toEqual(1);
   });
 });

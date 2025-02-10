@@ -1,14 +1,13 @@
 import { Argv, CommandModule } from 'yargs';
 import { parseCSV } from '../yargs-utils/shared-options';
 
-const useV2 = process.env['NX_ADD_PLUGINS'] !== 'false';
-
 export const yargsInitCommand: CommandModule = {
   command: 'init',
   describe:
     'Adds Nx to any type of workspace. It installs nx, creates an nx.json configuration file and optionally sets up remote caching. For more info, check https://nx.dev/recipes/adopting-nx.',
   builder: (yargs) => withInitOptions(yargs),
   handler: async (args: any) => {
+    const useV2 = await isInitV2();
     if (useV2) {
       await require('./init-v2').initHandler(args);
     } else {
@@ -18,7 +17,16 @@ export const yargsInitCommand: CommandModule = {
   },
 };
 
-function withInitOptions(yargs: Argv) {
+async function isInitV2() {
+  return (
+    process.env['NX_ADD_PLUGINS'] !== 'false' &&
+    (await import('../../config/nx-json')).readNxJson().useInferencePlugins !==
+      false
+  );
+}
+
+async function withInitOptions(yargs: Argv) {
+  const useV2 = await isInitV2();
   if (useV2) {
     return yargs
       .option('nxCloud', {

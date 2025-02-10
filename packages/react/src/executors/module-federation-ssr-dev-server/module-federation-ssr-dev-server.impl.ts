@@ -1,184 +1,123 @@
-import {
-  ExecutorContext,
-  getPackageManagerCommand,
-  logger,
-  parseTargetString,
-  readTargetOptions,
-  runExecutor,
-  workspaceRoot,
-} from '@nx/devkit';
+import { ExecutorContext, logger } from '@nx/devkit';
 import ssrDevServerExecutor from '@nx/webpack/src/executors/ssr-dev-server/ssr-dev-server.impl';
-import { WebSsrDevServerOptions } from '@nx/webpack/src/executors/ssr-dev-server/schema';
-import { join } from 'path';
-import * as chalk from 'chalk';
+import { extname, join } from 'path';
+import { startRemoteIterators } from '@nx/module-federation/src/executors/utils';
 import {
   combineAsyncIterables,
   createAsyncIterable,
-  mapAsyncIterable,
-  tapAsyncIterable,
 } from '@nx/devkit/src/utils/async-iterable';
-import { execSync, fork } from 'child_process';
 import { existsSync } from 'fs';
-import { registerTsProject } from '@nx/js/src/internal';
-
-type ModuleFederationDevServerOptions = WebSsrDevServerOptions & {
-  devRemotes?: string | string[];
-  skipRemotes?: string[];
-  host: string;
-};
-
-function getBuildOptions(buildTarget: string, context: ExecutorContext) {
-  const target = parseTargetString(buildTarget, context);
-
-  const buildOptions = readTargetOptions(target, context);
-
-  return {
-    ...buildOptions,
-  };
-}
-
-function getModuleFederationConfig(
-  tsconfigPath: string,
-  workspaceRoot: string,
-  projectRoot: string
-) {
-  const moduleFederationConfigPathJS = join(
-    workspaceRoot,
-    projectRoot,
-    'module-federation.config.js'
-  );
-
-  const moduleFederationConfigPathTS = join(
-    workspaceRoot,
-    projectRoot,
-    'module-federation.config.ts'
-  );
-
-  let moduleFederationConfigPath = moduleFederationConfigPathJS;
-
-  const fullTSconfigPath = tsconfigPath.startsWith(workspaceRoot)
-    ? tsconfigPath
-    : join(workspaceRoot, tsconfigPath);
-  // create a no-op so this can be called with issue
-  let cleanupTranspiler = () => {};
-  if (existsSync(moduleFederationConfigPathTS)) {
-    cleanupTranspiler = registerTsProject(fullTSconfigPath);
-    moduleFederationConfigPath = moduleFederationConfigPathTS;
-  }
-
-  try {
-    const config = require(moduleFederationConfigPath);
-    cleanupTranspiler();
-
-    return config.default || config;
-  } catch {
-    throw new Error(
-      `Could not load ${moduleFederationConfigPath}. Was this project generated with "@nx/react:host"?\nSee: https://nx.dev/concepts/more-concepts/faster-builds-with-module-federation`
-    );
-  }
-}
+import { waitForPortOpen } from '@nx/web/src/utils/wait-for-port-open';
+import { ModuleFederationSsrDevServerOptions } from './schema';
+import { getBuildOptions, normalizeOptions, startRemotes } from './lib';
 
 export default async function* moduleFederationSsrDevServer(
-  options: ModuleFederationDevServerOptions,
+  ssrDevServerOptions: ModuleFederationSsrDevServerOptions,
   context: ExecutorContext
 ) {
+  const options = normalizeOptions(ssrDevServerOptions);
   let iter: any = ssrDevServerExecutor(options, context);
-  const p = context.projectsConfigurations.projects[context.projectName];
+  const projectConfig =
+    context.projectsConfigurations.projects[context.projectName];
   const buildOptions = getBuildOptions(options.browserTarget, context);
-  const moduleFederationConfig = getModuleFederationConfig(
-    buildOptions.tsConfig,
+
+  let pathToManifestFile = join(
     context.root,
-    p.root
+    projectConfig.sourceRoot,
+    'assets/module-federation.manifest.json'
   );
 
-  const remotesToSkip = new Set(options.skipRemotes ?? []);
-  const remotesNotInWorkspace: string[] = [];
-  const knownRemotes = (moduleFederationConfig.remotes ?? []).filter((r) => {
-    const validRemote = Array.isArray(r) ? r[0] : r;
-
-    if (remotesToSkip.has(validRemote)) {
-      return false;
-    } else if (!context.projectGraph.nodes[validRemote]) {
-      remotesNotInWorkspace.push(validRemote);
-      return false;
-    } else {
-      return true;
-    }
-  });
-
-  if (remotesNotInWorkspace.length > 0) {
-    logger.warn(
-      `Skipping serving ${remotesNotInWorkspace.join(
-        ', '
-      )} as they could not be found in the workspace. Ensure they are served correctly.`
+  if (options.pathToManifestFile) {
+    const userPathToManifestFile = join(
+      context.root,
+      options.pathToManifestFile
     );
-  }
 
-  const devServeApps = !options.devRemotes
-    ? []
-    : Array.isArray(options.devRemotes)
-    ? options.devRemotes
-    : [options.devRemotes];
-
-  for (const app of knownRemotes) {
-    const [appName] = Array.isArray(app) ? app : [app];
-    const isDev = devServeApps.includes(appName);
-    const remoteServeIter = isDev
-      ? await runExecutor(
-          {
-            project: appName,
-            target: 'serve',
-            configuration: context.configurationName,
-          },
-          {
-            watch: isDev,
-          },
-          context
-        )
-      : mapAsyncIterable(
-          createAsyncIterable(async ({ next, done }) => {
-            const remoteProject =
-              context.projectsConfigurations.projects[appName];
-            const remoteServerOutput = join(
-              workspaceRoot,
-              remoteProject.targets.server.options.outputPath,
-              remoteProject.targets.server.options.outputFileName
-            );
-            const pm = getPackageManagerCommand();
-            execSync(
-              `${pm.exec} nx run ${appName}:server${
-                context.configurationName ? `:${context.configurationName}` : ''
-              }`,
-              { stdio: 'inherit' }
-            );
-            const child = fork(remoteServerOutput, {
-              env: {
-                PORT: remoteProject.targets['serve-browser'].options.port,
-              },
-            });
-
-            child.on('message', (msg) => {
-              if (msg === 'nx.server.ready') {
-                next(true);
-                done();
-              }
-            });
-          }),
-          (x) => x
-        );
-
-    iter = combineAsyncIterables(iter, remoteServeIter);
-  }
-
-  let numAwaiting = knownRemotes.length + 1; // remotes + host
-  return yield* tapAsyncIterable(iter, (x) => {
-    numAwaiting--;
-    if (numAwaiting === 0) {
-      logger.info(
-        `[ ${chalk.green('ready')} ] http://${options.host ?? 'localhost'}:${
-          options.port ?? 4200
-        }`
+    if (!existsSync(userPathToManifestFile)) {
+      throw new Error(
+        `The provided Module Federation manifest file path does not exist. Please check the file exists at "${userPathToManifestFile}".`
+      );
+    } else if (extname(userPathToManifestFile) !== '.json') {
+      throw new Error(
+        `The Module Federation manifest file must be a JSON. Please ensure the file at ${userPathToManifestFile} is a JSON.`
       );
     }
-  });
+    pathToManifestFile = userPathToManifestFile;
+  }
+
+  if (!options.isInitialHost) {
+    return yield* iter;
+  }
+
+  const { staticRemotesIter, devRemoteIters, remotes } =
+    await startRemoteIterators(
+      options,
+      context,
+      startRemotes,
+      pathToManifestFile,
+      'react',
+      true
+    );
+
+  const combined = combineAsyncIterables(staticRemotesIter, ...devRemoteIters);
+
+  let refs = 1 + (devRemoteIters?.length ?? 0);
+  for await (const result of combined) {
+    if (result.success === false) throw new Error('Remotes failed to start');
+    if (result.success) refs--;
+    if (refs === 0) break;
+  }
+
+  return yield* combineAsyncIterables(
+    iter,
+    createAsyncIterable<{ success: true; baseUrl: string }>(
+      async ({ next, done }) => {
+        const host = options.host ?? 'localhost';
+        const baseUrl = `http${options.ssl ? 's' : ''}://${host}:${
+          options.port
+        }`;
+        if (!options.isInitialHost) {
+          next({ success: true, baseUrl });
+          done();
+          return;
+        }
+
+        if (remotes.remotePorts.length === 0) {
+          next({ success: true, baseUrl });
+          done();
+          return;
+        }
+
+        try {
+          const portsToWaitFor = staticRemotesIter
+            ? [options.staticRemotesPort, ...remotes.remotePorts]
+            : [...remotes.remotePorts];
+
+          await Promise.all(
+            portsToWaitFor.map((port) =>
+              waitForPortOpen(port, {
+                retries: 480,
+                retryDelay: 2500,
+                host,
+              })
+            )
+          );
+
+          logger.info(
+            `Nx all ssr remotes have started, server ready at ${baseUrl}`
+          );
+          next({ success: true, baseUrl });
+        } catch (error) {
+          throw new Error(
+            `Nx failed to start ssr remotes. Check above for errors.`,
+            {
+              cause: error,
+            }
+          );
+        } finally {
+          done();
+        }
+      }
+    )
+  );
 }

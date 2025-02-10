@@ -35,14 +35,14 @@ It is configured in the `plugins` array in `nx.json`.
 
 Where `build`, `serve`, `serve-static` and `preview` in conjunction with your `webpack.config.js` are the names of the targets that are used to _build_, _serve_, and _preview_ the application respectively.
 
-### NxWebpackPlugin
+### NxAppWebpackPlugin
 
-The [`NxWebpackPlugin`](/recipes/webpack/webpack-plugins#nxwebpackplugin) plugin takes a `main` entry file and produces a bundle in the output directory as defined in `output.path`. You can also pass the `index` option if it is a web app, which will handle outputting scripts and stylesheets in the output file.
+The [`NxAppWebpackPlugin`](/recipes/webpack/webpack-plugins#nxappwebpackplugin) plugin takes a `main` entry file and produces a bundle in the output directory as defined in `output.path`. You can also pass the `index` option if it is a web app, which will handle outputting scripts and stylesheets in the output file.
 
 To generate a `package.json` we would declare it in the plugin options.
 
 ```js {% fileName="apps/acme/app/webpack.config.js" %}
-const { NxWebpackPlugin } = require('@nx/webpack');
+const { NxAppWebpackPlugin } = require('@nx/webpack/app-plugin');
 const { join } = require('path');
 
 module.exports = {
@@ -53,7 +53,7 @@ module.exports = {
     port: 4200,
   },
   plugins: [
-    new NxWebpackPlugin({
+    new NxAppWebpackPlugin({
       tsConfig: './tsconfig.app.json',
       compiler: 'swc',
       main: './src/main.tsx',
@@ -97,6 +97,7 @@ const {
   createProjectGraphAsync,
   readCachedProjectGraph,
   detectPackageManager,
+  writeJsonFile,
 } = require('@nx/devkit');
 const {
   createLockFile,
@@ -128,7 +129,7 @@ async function main() {
 
   const lockFileName = getLockFileName(pm);
 
-  writeFileSync(`${outputDir}/package.json`, packageJson);
+  writeJsonFile(`${outputDir}/package.json`, packageJson);
   writeFileSync(`${outputDir}/${lockFileName}`, lockFile, {
     encoding: 'utf8',
   });

@@ -6,13 +6,15 @@ import {
   updateJson,
   updateNxJson,
 } from '@nx/devkit';
-import { nxVersion, vitestVersion, viteVersion } from '../../../utils/versions';
+import { nxVersion, viteVersion } from '../../../utils/versions';
 import { InitGeneratorSchema } from '../schema';
+import { getVitestDependenciesVersionsToInstall } from '../../../utils/version-utils';
 
-export function checkDependenciesInstalled(
+export async function checkDependenciesInstalled(
   host: Tree,
   schema: InitGeneratorSchema
 ) {
+  const { vitest } = await getVitestDependenciesVersionsToInstall(host);
   return addDependenciesToPackageJson(
     host,
     {},
@@ -20,8 +22,8 @@ export function checkDependenciesInstalled(
       '@nx/vite': nxVersion,
       '@nx/web': nxVersion,
       vite: viteVersion,
-      vitest: vitestVersion,
-      '@vitest/ui': vitestVersion,
+      vitest: vitest,
+      '@vitest/ui': vitest,
     },
     undefined,
     schema.keepExistingVersions
@@ -59,32 +61,5 @@ export function createVitestConfig(tree: Tree) {
     nxJson.namedInputs.production = Array.from(new Set(productionFileSet));
   }
 
-  updateNxJson(tree, nxJson);
-}
-
-export function addPlugin(tree: Tree) {
-  const nxJson = readNxJson(tree);
-  nxJson.plugins ??= [];
-
-  for (const plugin of nxJson.plugins) {
-    if (
-      typeof plugin === 'string'
-        ? plugin === '@nx/vite/plugin'
-        : plugin.plugin === '@nx/vite/plugin'
-    ) {
-      return;
-    }
-  }
-
-  nxJson.plugins.push({
-    plugin: '@nx/vite/plugin',
-    options: {
-      buildTargetName: 'build',
-      previewTargetName: 'preview',
-      testTargetName: 'test',
-      serveTargetName: 'serve',
-      serveStaticTargetName: 'serve-static',
-    },
-  });
   updateNxJson(tree, nxJson);
 }

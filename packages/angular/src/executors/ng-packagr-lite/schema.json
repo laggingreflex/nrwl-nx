@@ -3,14 +3,10 @@
   "outputCapture": "direct-nodejs",
   "$schema": "https://json-schema.org/schema",
   "title": "ng-packagr Target",
-  "description": "Builds a library with support for incremental builds.\n\nThis executor is meant to be used with buildable libraries in an incremental build scenario. It is similar to the `@nx/angular:package` executor but with some key differences:\n- For supported Angular versions lower than v16, it doesn't run `ngcc` automatically (`ngcc` is no longer available from Angular v16 onwards, for lower versions, it needs to be run separately beforehand if needed, this can be done in a `postinstall` hook on `package.json`).\n- It only produces ESM2022 bundles (ESM2020 for supported Angular versions lower than v16).",
+  "description": "Builds an Angular library with support for incremental builds.\n\nThis executor is meant to be used with buildable libraries in an incremental build scenario. It is similar to the `@nx/angular:package` executor but it only produces ESM2022 bundles.",
   "cli": "nx",
   "type": "object",
   "presets": [
-    {
-      "name": "Buildable Library with Tailwind",
-      "keys": ["project", "tailwindConfig"]
-    },
     {
       "name": "Updating Project Dependencies for Buildable Library",
       "keys": ["project"]
@@ -33,9 +29,9 @@
       "description": "Whether to run a build when any file changes.",
       "default": false
     },
-    "tailwindConfig": {
-      "type": "string",
-      "description": "The full path for the Tailwind configuration file, relative to the workspace root. If not provided and a `tailwind.config.js` file exists in the project or workspace root, it will be used. Otherwise, Tailwind will not be configured."
+    "poll": {
+      "type": "number",
+      "description": "Enable and define the file watching poll time period in milliseconds. _Note: this is only supported in Angular versions >= 18.0.0_."
     }
   },
   "additionalProperties": false,

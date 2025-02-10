@@ -1,3 +1,5 @@
+import 'nx/src/internal-testing-utils/mock-project-graph';
+
 jest.mock('../../utils/remix-config');
 import * as remixConfigUtils from '../../utils/remix-config';
 
@@ -19,10 +21,9 @@ describe('meta', () => {
       })
     );
 
-    await applicationGenerator(tree, { name: 'demo' });
+    await applicationGenerator(tree, { name: 'demo', directory: 'apps/demo' });
     await routeGenerator(tree, {
-      path: 'example',
-      project: 'demo',
+      path: 'apps/demo/app/routes/example.tsx',
       style: 'none',
       loader: false,
       action: false,
@@ -33,23 +34,7 @@ describe('meta', () => {
 
   it('should use v2 when specified', async () => {
     await metaGenerator(tree, {
-      path: 'example',
-      project: 'demo',
-    });
-
-    const content = tree.read('apps/demo/app/routes/example.tsx', 'utf-8');
-    expect(content).toMatch(
-      `import type { MetaFunction } from '@remix-run/node';`
-    );
-
-    expect(content).toMatch(`export const meta: MetaFunction`);
-    expect(content).toMatch(`return [`);
-  });
-
-  it('--nameAndDirectoryFormat=as=provided', async () => {
-    await metaGenerator(tree, {
       path: 'apps/demo/app/routes/example.tsx',
-      nameAndDirectoryFormat: 'as-provided',
     });
 
     const content = tree.read('apps/demo/app/routes/example.tsx', 'utf-8');

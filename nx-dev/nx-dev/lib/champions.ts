@@ -1,22 +1,6 @@
 import { Champion } from '@nx/nx-dev/ui-common';
 
-export const champions1: Champion[] = [
-  {
-    name: 'William Ghelfi',
-    expertise: 'React, Repository Structure, Patting New Devs On Their Backs',
-    imageUrl: '/images/champions/william-ghelfi.webp',
-    contact: [
-      {
-        label: '@trumbitta',
-        link: 'https://twitter.com/trumbitta',
-      },
-      {
-        label: '@williamghelfi.com',
-        link: 'https://bsky.app/profile/williamghelfi.com',
-      },
-    ],
-    location: 'Italy',
-  },
+export const champions: Champion[] = [
   {
     name: 'Santosh Yadav',
     expertise:
@@ -74,16 +58,17 @@ export const champions1: Champion[] = [
     location: 'Argentina',
   },
   {
-    name: 'Dmitriy Stepanenko',
-    expertise: 'Angular, Qwik, Plugins, Community, Blogs',
-    imageUrl: '/images/champions/dmitriy-stepanenko.webp',
+    name: 'Michael Hladky',
+    expertise:
+      'We support big companies to achieve their goals by writing plugins, designing enterprise architecture and auditing their web performance',
+    imageUrl: '/images/champions/michael-hladky.webp',
     contact: [
       {
-        label: 'stepanenkodmitri@gmail.com',
-        link: 'mailto:stepanenkodmitri@gmail.com',
+        label: 'office@push-based.io',
+        link: 'mailto:office@push-based.io',
       },
     ],
-    location: 'Ukraine',
+    location: 'Austria',
   },
   {
     name: 'Daniel Glejzner',
@@ -98,8 +83,97 @@ export const champions1: Champion[] = [
     ],
     location: 'Poland',
   },
-];
-export const champions2: Champion[] = [
+  {
+    name: 'Nicolas Beaussart-Hatchuel',
+    expertise:
+      'Writing Plugins, React, Mentoring, Repository Structure, Talks, Onboarding New Devs',
+    imageUrl: '/images/champions/nicolas-beaussart-hatchuel.webp',
+    contact: [
+      {
+        label: '@beaussan',
+        link: 'https://twitter.com/beaussan',
+      },
+    ],
+    location: 'France',
+  },
+  {
+    name: 'Jonathan Gelin',
+    expertise:
+      'Empowering organizations with Nx for streamlined development, robust monorepos, efficient CI/CD, micro-frontend architecture, and strong testing strategies',
+    imageUrl: '/images/champions/jonathan-gelin.webp',
+    contact: [
+      {
+        label: 'gelin.jonathan@gmail.com',
+        link: 'mailto:gelin.jonathan@gmail.com',
+      },
+    ],
+    location: 'Belgium',
+  },
+  {
+    name: 'Bob Strecansky',
+    expertise:
+      'Community Evangelist, Enterprise Ideology, Performance Optimization',
+    imageUrl: '/images/champions/bob-strecansky.webp',
+    contact: [
+      {
+        label: '@bobstrecansky',
+        link: 'https://twitter.com/bobstrecansky',
+      },
+    ],
+    location: 'Atlanta, GA, USA',
+  },
+  {
+    name: 'Joshua VanAllen',
+    expertise:
+      'App migrations, large scale repository structures, Angular, Vue, Spring, onboarding, educating the masses',
+    imageUrl: '/images/champions/josh-vanallen.webp',
+    contact: [
+      {
+        label: '@joshvanallen.dev',
+        link: 'https://bsky.app/profile/joshvanallen.dev',
+      },
+    ],
+    location: 'Pennsylvania, USA',
+  },
+  {
+    name: 'Thomas Laforge',
+    expertise:
+      'Teach users how to create a better developer experience (DX) with Nx and Angular through github challenges, blog posts, and conference talks',
+    imageUrl: '/images/champions/thomas-laforge.webp',
+    contact: [
+      {
+        label: '@laforge_toma',
+        link: 'https://twitter.com/laforge_toma',
+      },
+    ],
+    location: 'France',
+  },
+  {
+    name: 'Fabian Gosebrink',
+    expertise:
+      'Angular, Blogs, Conferences & Talks, Enterprise Architecture with Nx, Onboarding new Devs, Repository Structure, State Management',
+    imageUrl: '/images/champions/fabian-gosebrink.webp',
+    contact: [
+      {
+        label: 'fabian.gosebrink@offering.solutions',
+        link: 'mailto:fabian.gosebrink@offering.solutions',
+      },
+    ],
+    location: 'Switzerland',
+  },
+  {
+    name: 'Brecht Billiet',
+    expertise:
+      "Large-scale architecture, GenAI automation, Angular, Scaling monorepo's",
+    imageUrl: '/images/champions/brecht-billiet.webp',
+    contact: [
+      {
+        label: 'brecht@simplified.courses',
+        link: 'mailto:brecht@simplified.courses',
+      },
+    ],
+    location: 'Belgium',
+  },
   {
     name: 'Dominik Pieper',
     expertise:
@@ -177,18 +251,6 @@ export const champions2: Champion[] = [
     location: 'Luxembourg',
   },
   {
-    name: 'Edouard Bozon',
-    expertise: 'Angular, Architecture, Automation, Testing, Devtools',
-    imageUrl: '/images/champions/edouard-bozon.webp',
-    contact: [
-      {
-        label: '@edbzn',
-        link: 'https://twitter.com/edbzn',
-      },
-    ],
-    location: 'France',
-  },
-  {
     name: 'Stefan Haas',
     expertise:
       'Angular, Repository Structure, Onboarding New Devs, Architecture, Blogging',
@@ -199,95 +261,6 @@ export const champions2: Champion[] = [
         link: 'https://www.linkedin.com/in/stefan-haas-686a921b4/',
       },
       // https://github.com/HaasStefan/, https://twitter.com/StefanvHaas,  stefan.haas.privat@gmail.com
-    ],
-    location: 'Austria',
-  },
-];
-export const champions3: Champion[] = [
-  {
-    name: 'Lara Newsom',
-    expertise:
-      'I work every day on a large enterprise scale Angular application, so I care a lot about plugins and developer experience',
-    imageUrl: '/images/champions/lara-newsom.webp',
-    contact: [
-      {
-        label: 'laramnewsom@gmail.com',
-        link: 'mailto:laramnewsom@gmail.com',
-      },
-    ],
-    location: 'Iowa, USA',
-  },
-  {
-    name: 'Kate Sky',
-    expertise:
-      'Nx + Angular best practices in Enterprise multi-team environment and micro-frontend architecture',
-    imageUrl: '/images/champions/kate-sky.webp',
-    contact: [
-      {
-        label: '@KateSky8',
-        link: 'https://twitter.com/KateSky8',
-      },
-    ],
-    location: 'USA',
-  },
-  {
-    name: 'Shai Reznik',
-    expertise: 'Writing plugins, Qwik, testing',
-    imageUrl: '/images/champions/shai-reznik.webp',
-    contact: [
-      {
-        label: '@shai_reznik',
-        link: 'https://twitter.com/shai_reznik',
-      },
-    ],
-    location: 'Israel',
-  },
-  {
-    name: 'Issam GUISSOUMA',
-    expertise: 'IDE support',
-    imageUrl: '/images/champions/issam-guissouma.webp',
-    contact: [
-      {
-        label: '@iguissouma',
-        link: 'https://twitter.com/iguissouma',
-      },
-    ],
-    location: 'France',
-  },
-  {
-    name: 'Devin Shoemaker',
-    expertise: 'Writing plugins and being the resident Nx enthusiast at Ionic',
-    imageUrl: '/images/champions/devin-shoemaker.webp',
-    contact: [
-      {
-        label: '@ParanoidCoder',
-        link: 'https://twitter.com/ParanoidCoder',
-      },
-    ],
-    location: 'Missouri, USA',
-  },
-  {
-    name: 'Preston Lamb',
-    expertise: 'Angular, Cypress, Question Answerer for New Users',
-    imageUrl: '/images/champions/preston-lamb.webp',
-    contact: [
-      {
-        label: '@prestonjlamb',
-        link: 'https://twitter.com/prestonjlamb',
-      },
-    ],
-    location: 'Utah, USA',
-  },
-  {
-    name: 'Michael Hladky',
-    expertise:
-      'We support big companies to achieve their goals by writing plugins, designing enterprise architecture and auditing their web performance',
-    imageUrl: '/images/champions/michael-hladky.webp',
-    contact: [
-      {
-        label: 'office@push-based.io',
-        link: 'mailto:office@push-based.io',
-      },
     ],
     location: 'Austria',
   },
@@ -316,5 +289,141 @@ export const champions3: Champion[] = [
       },
     ],
     location: 'USA',
+  },
+  {
+    name: 'Martin Hochel',
+    expertise: 'Architecture, Scalability, Plugins, Releases, OpenSource',
+    imageUrl: '/images/champions/martin-hochel.webp',
+    contact: [
+      {
+        label: 'LinkedIn: hochelmartin',
+        link: 'https://linkedin.com/in/hochelmartin',
+      },
+    ],
+    location: 'Czechia',
+  },
+  {
+    name: 'Lara Newsom',
+    expertise:
+      'I work every day on a large enterprise scale Angular application, so I care a lot about plugins and developer experience',
+    imageUrl: '/images/champions/lara-newsom.webp',
+    contact: [
+      {
+        label: 'laramnewsom@gmail.com',
+        link: 'mailto:laramnewsom@gmail.com',
+      },
+    ],
+    location: 'Iowa, USA',
+  },
+  {
+    name: 'Kate Sky',
+    expertise:
+      'Nx + Angular best practices in Enterprise multi-team environment and micro-frontend architecture',
+    imageUrl: '/images/champions/kate-sky.webp',
+    contact: [
+      {
+        label: '@KateSky8',
+        link: 'https://twitter.com/KateSky8',
+      },
+    ],
+    location: 'USA',
+  },
+  {
+    name: 'Edouard Maleix',
+    expertise:
+      'Setting up workspace for startups and enterprises. Improving workspace and CI pipeline performance. Creating plugins for Node.js applications and deployments. Sharing knowledge. Caching nerd.',
+    imageUrl: '/images/champions/edouard-maleix.webp',
+    contact: [
+      {
+        label: 'LinkedIn: edouard-maleix',
+        link: 'https://www.linkedin.com/in/edouard-maleix',
+      },
+    ],
+    location: 'Austria',
+  },
+  {
+    name: 'Issam GUISSOUMA',
+    expertise: 'IDE support',
+    imageUrl: '/images/champions/issam-guissouma.webp',
+    contact: [
+      {
+        label: '@iguissouma',
+        link: 'https://twitter.com/iguissouma',
+      },
+    ],
+    location: 'France',
+  },
+  {
+    name: 'Preston Lamb',
+    expertise: 'Angular, Cypress, Question Answerer for New Users',
+    imageUrl: '/images/champions/preston-lamb.webp',
+    contact: [
+      {
+        label: '@prestonjlamb',
+        link: 'https://twitter.com/prestonjlamb',
+      },
+    ],
+    location: 'Utah, USA',
+  },
+  {
+    name: 'Dmitriy Stepanenko',
+    expertise: 'Angular, Qwik, Plugins, Community, Blogs',
+    imageUrl: '/images/champions/dmitriy-stepanenko.webp',
+    contact: [
+      {
+        label: 'stepanenkodmitri@gmail.com',
+        link: 'mailto:stepanenkodmitri@gmail.com',
+      },
+    ],
+    location: 'Ukraine',
+  },
+  {
+    name: 'Edouard Bozon',
+    expertise: 'Angular, Architecture, Automation, Testing, Devtools',
+    imageUrl: '/images/champions/edouard-bozon.webp',
+    contact: [
+      {
+        label: '@edbzn',
+        link: 'https://twitter.com/edbzn',
+      },
+    ],
+    location: 'France',
+  },
+  {
+    name: 'Bram Borggreve',
+    expertise:
+      'Writing full-stack starter kits based on Nx. Writing Plugins. Helping teams move to Nx.',
+    imageUrl: '/images/champions/bram-borggreve.webp',
+    contact: [
+      {
+        label: '@beeman_nl',
+        link: 'https://twitter.com/beeman_nl',
+      },
+    ],
+    location: 'Spain',
+  },
+  {
+    name: 'Adrian Baran',
+    expertise: 'Angular, CI/CD, Dev Tools, Plugins and Executors',
+    imageUrl: '/images/champions/adrian-baran.webp',
+    contact: [
+      {
+        label: '@AdrianBaran_',
+        link: 'https://twitter.com/AdrianBaran_',
+      },
+    ],
+    location: 'USA',
+  },
+  {
+    name: 'Ahmed Elsakaan',
+    expertise: 'Passionate about Monorepos, Web tooling, React and Typescript.',
+    imageUrl: '/images/champions/ahmed-elsakaan.webp',
+    contact: [
+      {
+        label: '@ixahmedxii',
+        link: 'https://twitter.com/ixahmedxii',
+      },
+    ],
+    location: 'London, United Kingdom',
   },
 ];

@@ -11,7 +11,7 @@ import {
   visitNotIgnoredFiles,
   writeJson,
 } from '@nx/devkit';
-import { relative } from 'path';
+import { isAbsolute, normalize, relative } from 'path';
 import type * as ts from 'typescript';
 import { getImportPath } from '../../../utilities/get-import-path';
 import {
@@ -21,6 +21,7 @@ import {
 import { ensureTypescript } from '../../../utilities/typescript';
 import { NormalizedSchema } from '../schema';
 import { normalizePathSlashes } from './utils';
+import { isUsingTsSolutionSetup } from '../../../utilities/typescript/ts-solution-setup';
 
 let tsModule: typeof import('typescript');
 
@@ -41,12 +42,18 @@ export function updateImports(
   const { libsDir } = getWorkspaceLayout(tree);
   const projects = getProjects(tree);
 
+  const isUsingTsSolution = isUsingTsSolutionSetup(tree);
+
   // use the source root to find the from location
   // this attempts to account for libs that have been created with --importPath
-  const tsConfigPath = getRootTsConfigPathInTree(tree);
+  const tsConfigPath = isUsingTsSolution
+    ? 'tsconfig.json'
+    : getRootTsConfigPathInTree(tree);
+  // If we are using a ts solution setup, we need to use tsconfig.json instead of tsconfig.base.json
   let tsConfig: any;
   let mainEntryPointImportPath: string;
   let secondaryEntryPointImportPaths: string[];
+  let serverEntryPointImportPath: string;
   if (tree.exists(tsConfigPath)) {
     tsConfig = readJson(tree, tsConfigPath);
     const sourceRoot =
@@ -68,6 +75,19 @@ export function updateImports(
           !x.startsWith(ensureTrailingSlash(sourceRoot))
       )
     );
+
+    // Next.js libs have a custom path for the server we need to update that as well
+    // example "paths": { @acme/lib/server : ['libs/lib/src/server.ts'] }
+    serverEntryPointImportPath = Object.keys(
+      tsConfig.compilerOptions?.paths ?? {}
+    ).find((path) =>
+      tsConfig.compilerOptions.paths[path].some(
+        (x) =>
+          x.startsWith(ensureTrailingSlash(sourceRoot)) &&
+          x.includes('server') &&
+          path.endsWith('server')
+      )
+    );
   }
 
   mainEntryPointImportPath ??= normalizePathSlashes(
@@ -82,17 +102,33 @@ export function updateImports(
       from: mainEntryPointImportPath,
       to: schema.importPath,
     },
-    ...secondaryEntryPointImportPaths.map((p) => ({
-      from: p,
-      // if the import path doesn't start with the main entry point import path,
-      // it's a custom import path we don't know how to update the name, we keep
-      // it as-is, but we'll update the path it points to
-      to:
-        schema.importPath && p.startsWith(mainEntryPointImportPath)
-          ? p.replace(mainEntryPointImportPath, schema.importPath)
-          : null,
-    })),
+    ...(secondaryEntryPointImportPaths
+      ? secondaryEntryPointImportPaths.map((p) => ({
+          from: p,
+          // if the import path doesn't start with the main entry point import path,
+          // it's a custom import path we don't know how to update the name, we keep
+          // it as-is, but we'll update the path it points to
+          to:
+            schema.importPath && p.startsWith(mainEntryPointImportPath)
+              ? p.replace(mainEntryPointImportPath, schema.importPath)
+              : null,
+        }))
+      : []),
   ];
+
+  if (
+    serverEntryPointImportPath &&
+    schema.importPath &&
+    serverEntryPointImportPath.startsWith(mainEntryPointImportPath)
+  ) {
+    projectRefs.push({
+      from: serverEntryPointImportPath,
+      to: serverEntryPointImportPath.replace(
+        mainEntryPointImportPath,
+        schema.importPath
+      ),
+    });
+  }
 
   for (const projectRef of projectRefs) {
     if (schema.updateImportPath && projectRef.to) {
@@ -121,30 +157,85 @@ export function updateImports(
     };
 
     if (tsConfig) {
-      const path = tsConfig.compilerOptions.paths[projectRef.from] as string[];
-      if (!path) {
-        throw new Error(
-          [
-            `unable to find "${projectRef.from}" in`,
-            `${tsConfigPath} compilerOptions.paths`,
-          ].join(' ')
+      if (!isUsingTsSolution) {
+        updateTsConfigPaths(
+          tsConfig,
+          projectRef,
+          tsConfigPath,
+          projectRoot,
+          schema
         );
-      }
-      const updatedPath = path.map((x) =>
-        joinPathFragments(projectRoot.to, relative(projectRoot.from, x))
-      );
-
-      if (schema.updateImportPath && projectRef.to) {
-        tsConfig.compilerOptions.paths[projectRef.to] = updatedPath;
-        if (projectRef.from !== projectRef.to) {
-          delete tsConfig.compilerOptions.paths[projectRef.from];
-        }
       } else {
-        tsConfig.compilerOptions.paths[projectRef.from] = updatedPath;
+        updateTsConfigReferences(tsConfig, projectRoot, tsConfigPath, schema);
       }
+      writeJson(tree, tsConfigPath, tsConfig);
     }
+  }
+}
 
-    writeJson(tree, tsConfigPath, tsConfig);
+function updateTsConfigReferences(
+  tsConfig: any,
+  projectRoot: { from: string; to: string },
+  tsConfigPath: string,
+  schema: NormalizedSchema
+) {
+  // Since paths can be './path' or 'path' we check if both are the same relative path to the workspace root
+  const projectRefIndex = tsConfig.references.findIndex(
+    (ref) => relative(ref.path, projectRoot.from) === ''
+  );
+  if (projectRefIndex === -1) {
+    throw new Error(
+      `unable to find "${projectRoot.from}" in ${tsConfigPath} references`
+    );
+  }
+  const updatedPath = joinPathFragments(
+    projectRoot.to,
+    relative(projectRoot.from, tsConfig.references[projectRefIndex].path)
+  );
+
+  let normalizedPath = normalize(updatedPath);
+  if (
+    !normalizedPath.startsWith('.') &&
+    !normalizedPath.startsWith('../') &&
+    !isAbsolute(normalizedPath)
+  ) {
+    normalizedPath = `./${normalizedPath}`;
+  }
+
+  if (schema.updateImportPath && projectRoot.to) {
+    tsConfig.references[projectRefIndex].path = normalizedPath;
+  } else {
+    tsConfig.references.push({ path: normalizedPath });
+  }
+}
+
+function updateTsConfigPaths(
+  tsConfig: any,
+  projectRef: { from: string; to: string },
+  tsConfigPath: string,
+  projectRoot: { from: string; to: string },
+  schema: NormalizedSchema
+) {
+  const path = tsConfig.compilerOptions.paths[projectRef.from] as string[];
+  if (!path) {
+    throw new Error(
+      [
+        `unable to find "${projectRef.from}" in`,
+        `${tsConfigPath} compilerOptions.paths`,
+      ].join(' ')
+    );
+  }
+  const updatedPath = path.map((x) =>
+    joinPathFragments(projectRoot.to, relative(projectRoot.from, x))
+  );
+
+  if (schema.updateImportPath && projectRef.to) {
+    tsConfig.compilerOptions.paths[projectRef.to] = updatedPath;
+    if (projectRef.from !== projectRef.to) {
+      delete tsConfig.compilerOptions.paths[projectRef.from];
+    }
+  } else {
+    tsConfig.compilerOptions.paths[projectRef.from] = updatedPath;
   }
 }
 
@@ -195,7 +286,7 @@ function updateImportDeclarations(
   const changes: StringChange[] = [];
 
   for (const { moduleSpecifier } of importDecls) {
-    if (tsModule.isStringLiteral(moduleSpecifier)) {
+    if (moduleSpecifier && tsModule.isStringLiteral(moduleSpecifier)) {
       changes.push(...updateModuleSpecifier(moduleSpecifier, from, to));
     }
   }

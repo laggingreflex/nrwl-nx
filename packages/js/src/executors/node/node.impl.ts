@@ -1,14 +1,14 @@
 import * as chalk from 'chalk';
-import { ChildProcess, exec, fork } from 'child_process';
+import { ChildProcess, fork } from 'child_process';
 import {
   ExecutorContext,
+  isDaemonEnabled,
   joinPathFragments,
   logger,
   parseTargetString,
   ProjectGraphProjectNode,
   readTargetOptions,
   runExecutor,
-  Target,
 } from '@nx/devkit';
 import { createAsyncIterable } from '@nx/devkit/src/utils/async-iterable';
 import { daemonClient } from 'nx/src/daemon/client/client';
@@ -21,6 +21,7 @@ import { calculateProjectBuildableDependencies } from '../../utils/buildable-lib
 import { killTree } from './lib/kill-tree';
 import { fileExists } from 'nx/src/utils/fileutils';
 import { getRelativeDirectoryToProjectRoot } from '../../utils/get-main-file-dir';
+import { interpolate } from 'nx/src/tasks-runner/utils';
 
 interface ActiveTask {
   id: string;
@@ -31,11 +32,30 @@ interface ActiveTask {
   stop: (signal: NodeJS.Signals) => Promise<void>;
 }
 
-function debounce(fn: () => void, wait: number) {
+function debounce<T>(fn: () => Promise<T>, wait: number): () => Promise<T> {
   let timeoutId: NodeJS.Timeout;
+  let pendingPromise: Promise<T> | null = null;
+
   return () => {
     clearTimeout(timeoutId);
-    timeoutId = setTimeout(fn, wait);
+
+    if (!pendingPromise) {
+      pendingPromise = new Promise<T>((resolve, reject) => {
+        timeoutId = setTimeout(() => {
+          fn()
+            .then((result) => {
+              pendingPromise = null;
+              resolve(result);
+            })
+            .catch((error) => {
+              pendingPromise = null;
+              reject(error);
+            });
+        }, wait);
+      });
+    }
+
+    return pendingPromise;
   };
 }
 
@@ -58,10 +78,7 @@ export async function* nodeExecutor(
   const buildTargetExecutor =
     project.data.targets[buildTarget.target]?.executor;
 
-  if (
-    buildTargetExecutor === 'nx:run-commands' ||
-    buildTargetExecutor === '@nrwl/workspace:run-commands'
-  ) {
+  if (buildTargetExecutor === 'nx:run-commands') {
     // Run commands does not emit build event, so we have to switch to run entire build through Nx CLI.
     options.runBuildTargetDependencies = true;
   }
@@ -69,6 +86,7 @@ export async function* nodeExecutor(
   const buildOptions: Record<string, any> = {
     ...readTargetOptions(buildTarget, context),
     ...options.buildTargetOptions,
+    target: buildTarget.target,
   };
 
   if (options.waitUntilTargets && options.waitUntilTargets.length > 0) {
@@ -98,7 +116,7 @@ export async function* nodeExecutor(
   yield* createAsyncIterable<{
     success: boolean;
     options?: Record<string, any>;
-  }>(async ({ done, next, error }) => {
+  }>(async ({ done, next, error, registerCleanup }) => {
     const processQueue = async () => {
       if (tasks.length === 0) return;
 
@@ -127,7 +145,7 @@ export async function* nodeExecutor(
           // Wait for build to finish.
           const result = await buildResult;
 
-          if (!result.success) {
+          if (result && !result.success) {
             // If in watch-mode, don't throw or else the process exits.
             if (options.watch) {
               if (!task.killed) {
@@ -175,7 +193,13 @@ export async function* nodeExecutor(
                   `NX Process exited with code ${code}, waiting for changes to restart...`
                 );
               }
-              if (!options.watch) done();
+              if (!options.watch) {
+                if (code !== 0) {
+                  error(new Error(`Process exited with code ${code}`));
+                } else {
+                  done();
+                }
+              }
               resolve();
             });
 
@@ -200,6 +224,31 @@ export async function* nodeExecutor(
 
       tasks.push(task);
     };
+
+    const stopAllTasks = async (signal: NodeJS.Signals = 'SIGTERM') => {
+      additionalExitHandler?.();
+      await currentTask?.stop(signal);
+      for (const task of tasks) {
+        await task.stop(signal);
+      }
+    };
+
+    process.on('SIGTERM', async () => {
+      await stopAllTasks('SIGTERM');
+      process.exit(128 + 15);
+    });
+    process.on('SIGINT', async () => {
+      await stopAllTasks('SIGINT');
+      process.exit(128 + 2);
+    });
+    process.on('SIGHUP', async () => {
+      await stopAllTasks('SIGHUP');
+      process.exit(128 + 1);
+    });
+
+    registerCleanup(async () => {
+      await stopAllTasks('SIGTERM');
+    });
 
     if (options.runBuildTargetDependencies) {
       // If a all dependencies need to be rebuild on changes, then register with watcher
@@ -229,23 +278,31 @@ export async function* nodeExecutor(
         await addToQueue(childProcess, whenReady);
         await debouncedProcessQueue();
       };
-      additionalExitHandler = await daemonClient.registerFileWatcher(
-        {
-          watchProjects: [context.projectName],
-          includeDependentProjects: true,
-        },
-        async (err, data) => {
-          if (err === 'closed') {
-            logger.error(`Watch error: Daemon closed the connection`);
-            process.exit(1);
-          } else if (err) {
-            logger.error(`Watch error: ${err?.message ?? 'Unknown'}`);
-          } else {
-            logger.info(`NX File change detected. Restarting...`);
-            await runBuild();
+      if (isDaemonEnabled()) {
+        additionalExitHandler = await daemonClient.registerFileWatcher(
+          {
+            watchProjects: [context.projectName],
+            includeDependentProjects: true,
+          },
+          async (err, data) => {
+            if (err === 'closed') {
+              logger.error(`Watch error: Daemon closed the connection`);
+              process.exit(1);
+            } else if (err) {
+              logger.error(`Watch error: ${err?.message ?? 'Unknown'}`);
+            } else {
+              if (options.watch) {
+                logger.info(`NX File change detected. Restarting...`);
+                await runBuild();
+              }
+            }
           }
-        }
-      );
+        );
+      } else {
+        logger.warn(
+          `NX Daemon is not running. Node process will not restart automatically after file changes.`
+        );
+      }
       await runBuild(); // run first build
     } else {
       // Otherwise, run the build executor, which will not run task dependencies.
@@ -268,26 +325,6 @@ export async function* nodeExecutor(
         }
       }
     }
-
-    const stopAllTasks = (signal: NodeJS.Signals = 'SIGTERM') => {
-      additionalExitHandler?.();
-      for (const task of tasks) {
-        task.stop(signal);
-      }
-    };
-
-    process.on('SIGTERM', async () => {
-      stopAllTasks('SIGTERM');
-      process.exit(128 + 15);
-    });
-    process.on('SIGINT', async () => {
-      stopAllTasks('SIGINT');
-      process.exit(128 + 2);
-    });
-    process.on('SIGHUP', async () => {
-      stopAllTasks('SIGHUP');
-      process.exit(128 + 1);
-    });
   });
 }
 
@@ -358,7 +395,21 @@ function getFileToRun(
   // If using run-commands or another custom executor, then user should set
   // outputFileName, but we can try the default value that we use.
   if (!buildOptions?.outputPath && !buildOptions?.outputFileName) {
+    // If we are using crystal for infering the target, we can use the output path from the target.
+    // Since the output path has a token for the project name, we need to interpolate it.
+    // {workspaceRoot}/dist/{projectRoot} -> dist/my-app
+    const outputPath = project.data.targets[buildOptions.target]?.outputs?.[0];
+
+    if (outputPath) {
+      const outputFilePath = interpolate(outputPath, {
+        projectName: project.name,
+        projectRoot: project.data.root,
+        workspaceRoot: '',
+      });
+      return path.join(outputFilePath, 'main.js');
+    }
     const fallbackFile = path.join('dist', project.data.root, 'main.js');
+
     logger.warn(
       `Build option ${chalk.bold('outputFileName')} not set for ${chalk.bold(
         project.name
@@ -390,7 +441,7 @@ function getFileToRun(
 function fileToRunCorrectPath(fileToRun: string): string {
   if (fileExists(fileToRun)) return fileToRun;
 
-  const extensionsToTry = ['.cjs', '.mjs', 'cjs.js', '.esm.js'];
+  const extensionsToTry = ['.cjs', '.mjs', '.cjs.js', '.esm.js'];
 
   for (const ext of extensionsToTry) {
     const file = fileToRun.replace(/\.js$/, ext);

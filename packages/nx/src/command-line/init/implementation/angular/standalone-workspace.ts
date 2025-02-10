@@ -91,7 +91,7 @@ function createNxJson(
           ].filter(Boolean)
         : []),
       ...(eslintProjectConfigFile
-        ? ['!{projectRoot}/.eslintrc.json', '!{projectRoot}/eslint.config.js']
+        ? ['!{projectRoot}/.eslintrc.json', '!{projectRoot}/eslint.config.cjs']
         : []),
     ].filter(Boolean),
   };
@@ -124,8 +124,8 @@ function createNxJson(
     if (fileExists(join(repoRoot, '.eslintrc.json'))) {
       inputs.push('{workspaceRoot}/.eslintrc.json');
     }
-    if (fileExists(join(repoRoot, 'eslint.config.js'))) {
-      inputs.push('{workspaceRoot}/eslint.config.js');
+    if (fileExists(join(repoRoot, 'eslint.config.cjs'))) {
+      inputs.push('{workspaceRoot}/eslint.config.cjs');
     }
     nxJson.targetDefaults.lint = {
       ...nxJson.targetDefaults.lint,
@@ -138,8 +138,6 @@ function createNxJson(
       inputs: ['default', '^production'],
     };
   }
-  // Angular 15 workspaces still support defaultProject. Support was removed in Angular 16.
-  nxJson.defaultProject = angularJson.defaultProject;
   writeJsonFile(join(repoRoot, 'nx.json'), nxJson);
 }
 
@@ -161,7 +159,10 @@ function updateProjectOutputs(
       target.outputs = ['{options.outputPath}'];
     } else if (target.executor === '@angular-eslint/builder:lint') {
       target.outputs = ['{options.outputFile}'];
-    } else if (target.executor === '@angular-devkit/build-angular:ng-packagr') {
+    } else if (
+      target.executor === '@angular-devkit/build-angular:ng-packagr' ||
+      target.executor === '@angular/build:ng-packagr'
+    ) {
       try {
         const ngPackageJsonPath = join(repoRoot, target.options.project);
         const ngPackageJson = readJsonFile(ngPackageJsonPath);
@@ -232,7 +233,9 @@ function projectHasEslintConfig(
 ): boolean {
   return (
     fileExists(join(project.root, '.eslintrc.json')) ||
-    fileExists(join(project.root, 'eslint.config.js'))
+    fileExists(join(project.root, 'eslint.config.js')) ||
+    fileExists(join(project.root, 'eslint.config.mjs')) ||
+    fileExists(join(project.root, 'eslint.config.cjs'))
   );
 }
 

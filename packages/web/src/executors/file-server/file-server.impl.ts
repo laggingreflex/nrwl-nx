@@ -1,7 +1,8 @@
 import { execFileSync, fork } from 'child_process';
-import * as chalk from 'chalk';
+import * as pc from 'picocolors';
 import {
   ExecutorContext,
+  output,
   parseTargetString,
   readTargetOptions,
 } from '@nx/devkit';
@@ -18,38 +19,49 @@ import { interpolate } from 'nx/src/tasks-runner/utils';
 const pmCmd = platform() === 'win32' ? `npx.cmd` : 'npx';
 
 function getHttpServerArgs(options: Schema) {
+  const {
+    buildTarget,
+    parallel,
+    host,
+    proxyUrl,
+    ssl,
+    sslCert,
+    sslKey,
+    proxyOptions,
+    watch,
+    spa,
+    cacheSeconds,
+    ...rest
+  } = options;
   const args = [`-c${options.cacheSeconds}`];
-
-  if (options.cors) {
-    args.push(`--cors`);
+  for (const [key, value] of Object.entries(rest)) {
+    if (typeof value === 'boolean' && value) {
+      args.push(`--${key}`);
+    } else if (typeof value === 'string') {
+      args.push(`--${key}=${value}`);
+    }
   }
-  if (options.host) {
-    args.push(`-a=${options.host}`);
+  if (host) {
+    args.push(`-a=${host}`);
   }
-  if (options.ssl) {
+  if (ssl) {
     args.push(`-S`);
   }
-  if (options.sslCert) {
-    args.push(`-C=${options.sslCert}`);
+  if (sslCert) {
+    args.push(`-C=${sslCert}`);
   }
-  if (options.sslKey) {
-    args.push(`-K=${options.sslKey}`);
+  if (sslKey) {
+    args.push(`-K=${sslKey}`);
   }
-  if (options.proxyUrl) {
-    args.push(`-P=${options.proxyUrl}`);
+  if (proxyUrl) {
+    args.push(`-P=${proxyUrl}`);
   }
-  if (options.gzip) {
-    args.push('-g');
-  }
-  if (options.brotli) {
-    args.push('-b');
-  }
-
-  if (options.proxyOptions) {
+  if (proxyOptions) {
     Object.keys(options.proxyOptions).forEach((key) => {
       args.push(`--proxy-options.${key}=${options.proxyOptions[key]}`);
     });
   }
+
   return args;
 }
 
@@ -159,10 +171,12 @@ export default async function* fileServerExecutor(
           const args = getBuildTargetCommand(options, context);
           execFileSync(pmCmd, args, {
             stdio: [0, 1, 2],
+            shell: true,
+            windowsHide: false,
           });
         } catch {
           throw new Error(
-            `Build target failed: ${chalk.bold(options.buildTarget)}`
+            `Build target failed: ${pc.bold(options.buildTarget)}`
           );
         } finally {
           process.env.NX_SERVE_STATIC_BUILD_RUNNING = undefined;
@@ -171,9 +185,13 @@ export default async function* fileServerExecutor(
       }
     };
 
-    if (options.watch) {
-      const projectRoot =
-        context.projectsConfigurations.projects[context.projectName].root;
+    if (!daemonClient.enabled() && options.watch) {
+      output.warn({
+        title:
+          'Nx Daemon is not enabled. Static server is not watching for changes.',
+      });
+    }
+    if (daemonClient.enabled() && options.watch) {
       disposeWatch = await createFileWatcher(context.projectName, run);
     }
 
@@ -181,6 +199,7 @@ export default async function* fileServerExecutor(
     run();
   }
 
+  const port = await detectPort(options.port || 8080);
   const outputPath = getBuildTargetOutputPath(options, context);
 
   if (options.spa) {
@@ -189,6 +208,10 @@ export default async function* fileServerExecutor(
 
     // See: https://github.com/http-party/http-server#magic-files
     copyFileSync(src, dst);
+
+    // We also need to ensure the proxyUrl is set, otherwise the browser will continue to throw a 404 error
+    // This can cause unexpected behaviors and failures especially in automated test suites
+    options.proxyUrl ??= `http${options.ssl ? 's' : ''}://localhost:${port}?`;
   }
 
   const args = getHttpServerArgs(options);
@@ -205,7 +228,6 @@ export default async function* fileServerExecutor(
 
   // detect port as close to when used to prevent port being used by another process
   // when running in  parallel
-  const port = await detectPort(options.port || 8080);
   args.push(`-p=${port}`);
 
   const serve = fork(pathToHttpServer, [outputPath, ...args], {

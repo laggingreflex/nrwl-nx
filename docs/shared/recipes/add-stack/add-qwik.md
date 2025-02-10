@@ -13,7 +13,7 @@ We'll be using an Nx Plugin for Qwik called [qwik-nx](https://github.com/qwikifi
 {% pill url="/ci/features/remote-cache" %}✅ Share Your Cache{% /pill %}
 {% pill url="/features/explore-graph" %}✅ Explore the Graph{% /pill %}
 {% pill url="/ci/features/distribute-task-execution" %}✅ Distribute Task Execution{% /pill %}
-{% pill url="/features/integrate-with-editors" %}✅ Integrate with Editors{% /pill %}
+{% pill url="/getting-started/editor-setup" %}✅ Integrate with Editors{% /pill %}
 {% pill url="/features/automate-updating-dependencies" %}✅ Automate Updating Nx{% /pill %}
 {% pill url="/features/enforce-module-boundaries" %}✅ Enforce Module Boundaries{% /pill %}
 {% pill url="/features/generate-code" %}✅ Use Code Generators{% /pill %}
@@ -45,6 +45,14 @@ pnpm add -D qwik-nx
 ```
 
 {% /tab %}
+
+{% tab label="bun" %}
+
+```shell
+bun add -D qwik-nx
+```
+
+{% /tab %}
 {% /tabs %}
 
 {% callout type="note" title="Nx Version Compatibility" %}
@@ -59,10 +67,6 @@ If you need help finding the version of `nx` you are currently using, run `nx re
 
 Let's generate a new application using `qwik-nx`.
 
-{% callout type="note" title="Directory Flag Behavior Changes" %}
-The command below uses the `as-provided` directory flag behavior, which is the default in Nx 16.8.0. If you're on an earlier version of Nx or using the `derived` option, omit the `--directory` flag. See the [as-provided vs. derived documentation](/deprecated/as-provided-vs-derived) for more details.
-{% /callout %}
-
 ```shell
 nx g qwik-nx:app todo --directory=apps/todo
 ```
@@ -70,10 +74,6 @@ nx g qwik-nx:app todo --directory=apps/todo
 ## Create a library
 
 Let's generate a new library using `qwik-nx`.
-
-{% callout type="note" title="Directory Flag Behavior Changes" %}
-The command below uses the `as-provided` directory flag behavior, which is the default in Nx 16.8.0. If you're on an earlier version of Nx or using the `derived` option, omit the `--directory` flag. See the [as-provided vs. derived documentation](/deprecated/as-provided-vs-derived) for more details.
-{% /callout %}
 
 ```shell
 nx g qwik-nx:lib data-access --directory=libs/data-access

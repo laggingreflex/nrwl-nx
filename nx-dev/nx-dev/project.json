@@ -33,13 +33,6 @@
         "command": "pnpm next-sitemap --config ./nx-dev/nx-dev/next-sitemap.config.js"
       }
     },
-    "sync-documentation": {
-      "executor": "nx:run-commands",
-      "outputs": ["{projectRoot}/public/documentation"],
-      "options": {
-        "command": "ts-node -P ./scripts/tsconfig.scripts.json ./scripts/documentation/nx-dev-docs-latest-sync.ts"
-      }
-    },
     "generate-og-images": {
       "executor": "nx:run-commands",
       "outputs": ["{projectRoot}/public/images/open-graph"],
@@ -48,6 +41,7 @@
       }
     },
     "build-base": {
+      "parallelism": false,
       "executor": "@nx/next:build",
       "dependsOn": ["copy-docs"],
       "outputs": ["{options.outputPath}"],
@@ -80,6 +74,10 @@
         "parallel": true
       }
     },
+    "start": {
+      "dependsOn": ["build-base"],
+      "command": "nx run nx-dev:serve:production"
+    },
     "serve": {
       "executor": "@nx/next:server",
       "dependsOn": ["copy-docs"],
@@ -102,6 +100,7 @@
     "deploy-build": {
       "executor": "nx:run-commands",
       "outputs": ["{projectRoot}/public/documentation"],
+      "dependsOn": ["@nx/nx-source:documentation"],
       "options": {
         "commands": [
           {
@@ -109,15 +108,11 @@
             "description": "OG images generation"
           },
           {
-            "command": "ts-node -P scripts/tsconfig.scripts.json ./scripts/documentation/generators/main.ts",
-            "description": "Pre-generate official package metadata"
-          },
-          {
             "command": "nx copy-docs nx-dev",
             "description": "Copy generated docs to build output"
           },
           {
-            "command": "npx ts-node scripts/documentation/plugin-quality-indicators.ts",
+            "command": "npx ts-node -P scripts/tsconfig.scripts.json scripts/documentation/plugin-quality-indicators.ts",
             "description": "Fetch plugin data"
           },
           {
@@ -128,15 +123,7 @@
         "color": true,
         "parallel": false
       }
-    },
-    "export": {
-      "executor": "@nx/next:export",
-      "options": {
-        "buildTarget": "nx-dev:build:production"
-      }
-    },
-    "lint": {},
-    "test": {}
+    }
   },
   "tags": ["scope:nx-dev", "type:app"],
   "implicitDependencies": ["docs"]

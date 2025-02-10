@@ -30,12 +30,19 @@ export async function filterAffected(
 
   const touchedProjects = [];
   for (const locator of touchedProjectLocators) {
+    performance.mark(locator.name + ':start');
     const projects = await locator(
       touchedFiles,
       graph.nodes,
       nxJson,
       packageJson,
       graph
+    );
+    performance.mark(locator.name + ':end');
+    performance.measure(
+      locator.name,
+      locator.name + ':start',
+      locator.name + ':end'
     );
     touchedProjects.push(...projects);
   }
@@ -60,10 +67,10 @@ function filterAffectedProjects(
   };
   const reversed = reverse(graph);
   ctx.touchedProjects.forEach((p) => {
-    addAffectedNodes(p, reversed, result, []);
+    addAffectedNodes(p, reversed, result, new Set());
   });
   ctx.touchedProjects.forEach((p) => {
-    addAffectedDependencies(p, reversed, result, []);
+    addAffectedDependencies(p, reversed, result, new Set());
   });
   return result;
 }
@@ -72,15 +79,15 @@ function addAffectedNodes(
   startingProject: string,
   reversed: ProjectGraph,
   result: ProjectGraph,
-  visited: string[]
+  visited: Set<string>
 ): void {
-  if (visited.indexOf(startingProject) > -1) return;
+  if (visited.has(startingProject)) return;
   const reversedNode = reversed.nodes[startingProject];
   const reversedExternalNode = reversed.externalNodes[startingProject];
   if (!reversedNode && !reversedExternalNode) {
     throw new Error(`Invalid project name is detected: "${startingProject}"`);
   }
-  visited.push(startingProject);
+  visited.add(startingProject);
   if (reversedNode) {
     result.nodes[startingProject] = reversedNode;
     result.dependencies[startingProject] = [];
@@ -96,10 +103,10 @@ function addAffectedDependencies(
   startingProject: string,
   reversed: ProjectGraph,
   result: ProjectGraph,
-  visited: string[]
+  visited: Set<string>
 ): void {
-  if (visited.indexOf(startingProject) > -1) return;
-  visited.push(startingProject);
+  if (visited.has(startingProject)) return;
+  visited.add(startingProject);
   if (reversed.dependencies[startingProject]) {
     reversed.dependencies[startingProject].forEach(({ target }) =>
       addAffectedDependencies(target, reversed, result, visited)

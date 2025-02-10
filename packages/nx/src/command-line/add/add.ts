@@ -1,33 +1,37 @@
 import { exec } from 'child_process';
 import { existsSync } from 'fs';
 import * as ora from 'ora';
-import { isAngularPluginInstalled } from '../../adapter/angular-json';
-import type { GeneratorsJsonEntry } from '../../config/misc-interfaces';
-import { readNxJson } from '../../config/nx-json';
+import * as yargsParser from 'yargs-parser';
+import { readNxJson, type NxJsonConfiguration } from '../../config/nx-json';
 import { runNxAsync } from '../../utils/child-process';
 import { writeJsonFile } from '../../utils/fileutils';
 import { logger } from '../../utils/logger';
 import { output } from '../../utils/output';
-import { getPackageManagerCommand } from '../../utils/package-manager';
-import { handleErrors } from '../../utils/params';
-import { getPluginCapabilities } from '../../utils/plugins';
+import {
+  detectPackageManager,
+  getPackageManagerCommand,
+  getPackageManagerVersion,
+} from '../../utils/package-manager';
+import { handleErrors } from '../../utils/handle-errors';
 import { nxVersion } from '../../utils/versions';
 import { workspaceRoot } from '../../utils/workspace-root';
 import type { AddOptions } from './command-object';
+import { normalizeVersionForNxJson } from '../init/implementation/dot-nx/add-nx-scripts';
+import { gte } from 'semver';
+import {
+  installPlugin,
+  getFailedToInstallPluginErrorMessages,
+} from '../init/configure-plugins';
 
-export function addHandler(options: AddOptions): Promise<void> {
-  if (options.verbose) {
-    process.env.NX_VERBOSE_LOGGING = 'true';
-  }
-  const isVerbose = process.env.NX_VERBOSE_LOGGING === 'true';
-
-  return handleErrors(isVerbose, async () => {
+export function addHandler(options: AddOptions): Promise<number> {
+  return handleErrors(options.verbose, async () => {
     output.addNewline();
 
     const [pkgName, version] = parsePackageSpecifier(options.packageSpecifier);
+    const nxJson = readNxJson();
 
-    await installPackage(pkgName, version);
-    await initializePlugin(pkgName, options);
+    await installPackage(pkgName, version, nxJson);
+    await initializePlugin(pkgName, options, nxJson);
 
     output.success({
       title: `Package ${pkgName} added successfully.`,
@@ -35,35 +39,55 @@ export function addHandler(options: AddOptions): Promise<void> {
   });
 }
 
-async function installPackage(pkgName: string, version: string): Promise<void> {
+async function installPackage(
+  pkgName: string,
+  version: string,
+  nxJson: NxJsonConfiguration
+): Promise<void> {
   const spinner = ora(`Installing ${pkgName}@${version}...`);
   spinner.start();
 
   if (existsSync('package.json')) {
-    const pmc = getPackageManagerCommand();
-    await new Promise<void>((resolve) =>
-      exec(`${pmc.addDev} ${pkgName}@${version}`, (error, stdout) => {
-        if (error) {
-          spinner.fail();
-          output.addNewline();
-          logger.error(stdout);
-          output.error({
-            title: `Failed to install ${pkgName}. Please check the error above for more details.`,
-          });
-          process.exit(1);
-        }
+    const pm = detectPackageManager();
+    const pmv = getPackageManagerVersion(pm);
+    const pmc = getPackageManagerCommand(pm);
 
-        return resolve();
-      })
+    // if we explicitly specify latest in yarn berry, it won't resolve the version
+    const command =
+      pm === 'yarn' && gte(pmv, '2.0.0') && version === 'latest'
+        ? `${pmc.addDev} ${pkgName}`
+        : `${pmc.addDev} ${pkgName}@${version}`;
+    await new Promise<void>((resolve) =>
+      exec(
+        command,
+        {
+          windowsHide: false,
+        },
+        (error, stdout) => {
+          if (error) {
+            spinner.fail();
+            output.addNewline();
+            logger.error(stdout);
+            output.error({
+              title: `Failed to install ${pkgName}. Please check the error above for more details.`,
+            });
+            process.exit(1);
+          }
+
+          return resolve();
+        }
+      )
     );
   } else {
-    const nxJson = readNxJson();
     nxJson.installation.plugins ??= {};
-    nxJson.installation.plugins[pkgName] = version;
+    nxJson.installation.plugins[pkgName] = normalizeVersionForNxJson(
+      pkgName,
+      version
+    );
     writeJsonFile('nx.json', nxJson);
 
     try {
-      await runNxAsync('');
+      await runNxAsync('--help', { silent: true });
     } catch (e) {
       // revert adding the plugin to nx.json
       nxJson.installation.plugins[pkgName] = undefined;
@@ -84,75 +108,55 @@ async function installPackage(pkgName: string, version: string): Promise<void> {
 
 async function initializePlugin(
   pkgName: string,
-  options: AddOptions
+  options: AddOptions,
+  nxJson: NxJsonConfiguration
 ): Promise<void> {
-  const capabilities = await getPluginCapabilities(workspaceRoot, pkgName, {});
-  const generators = capabilities?.generators;
-  if (!generators) {
-    output.log({
-      title: `No generators found in ${pkgName}. Skipping initialization.`,
-    });
-    return;
-  }
+  const parsedCommandArgs: { [key: string]: any } = yargsParser(
+    options.__overrides_unparsed__,
+    {
+      configuration: {
+        'parse-numbers': false,
+        'parse-positional-numbers': false,
+        'dot-notation': false,
+        'camel-case-expansion': false,
+      },
+    }
+  );
 
-  const initGenerator = findInitGenerator(generators);
-  if (!initGenerator) {
-    output.log({
-      title: `No "init" generator found in ${pkgName}. Skipping initialization.`,
-    });
-    return;
+  if (coreNxPluginVersions.has(pkgName)) {
+    parsedCommandArgs.keepExistingVersions = true;
+
+    if (
+      options.updatePackageScripts ||
+      (options.updatePackageScripts === undefined &&
+        nxJson.useInferencePlugins !== false &&
+        process.env.NX_ADD_PLUGINS !== 'false')
+    ) {
+      parsedCommandArgs.updatePackageScripts = true;
+    }
   }
 
   const spinner = ora(`Initializing ${pkgName}...`);
   spinner.start();
 
   try {
-    let updatePackageScripts: boolean;
-    if (options.updatePackageScripts !== undefined) {
-      updatePackageScripts = options.updatePackageScripts;
-    } else {
-      updatePackageScripts =
-        process.env.NX_ADD_PLUGINS !== 'false' &&
-        coreNxPlugins.includes(pkgName);
-    }
-    await runNxAsync(
-      `g ${pkgName}:${initGenerator} --keepExistingVersions${
-        updatePackageScripts ? ' --updatePackageScripts' : ''
-      }`,
-      {
-        silent: !options.verbose,
-      }
+    await installPlugin(
+      pkgName,
+      workspaceRoot,
+      options.verbose,
+      parsedCommandArgs
     );
   } catch (e) {
     spinner.fail();
     output.addNewline();
-    logger.error(e.message);
     output.error({
-      title: `Failed to initialize ${pkgName}. Please check the error above for more details.`,
+      title: `Failed to initialize ${pkgName}`,
+      bodyLines: getFailedToInstallPluginErrorMessages(e),
     });
     process.exit(1);
   }
 
   spinner.succeed();
-}
-
-function findInitGenerator(
-  generators: Record<string, GeneratorsJsonEntry>
-): string | undefined {
-  if (generators['init']) {
-    return 'init';
-  }
-
-  const angularPluginInstalled = isAngularPluginInstalled();
-  if (angularPluginInstalled && generators['ng-add']) {
-    return 'ng-add';
-  }
-
-  return Object.keys(generators).find(
-    (name) =>
-      generators[name].aliases?.includes('init') ||
-      (angularPluginInstalled && generators[name].aliases?.includes('ng-add'))
-  );
 }
 
 function parsePackageSpecifier(
@@ -161,8 +165,8 @@ function parsePackageSpecifier(
   const i = packageSpecifier.lastIndexOf('@');
 
   if (i <= 0) {
-    if (coreNxPlugins.includes(packageSpecifier)) {
-      return [packageSpecifier, nxVersion];
+    if (coreNxPluginVersions.has(packageSpecifier)) {
+      return [packageSpecifier, coreNxPluginVersions.get(packageSpecifier)];
     }
 
     return [packageSpecifier, 'latest'];
@@ -174,31 +178,14 @@ function parsePackageSpecifier(
   return [pkgName, version];
 }
 
-const coreNxPlugins = [
-  '@nx/angular',
-  '@nx/cypress',
-  '@nx/detox',
-  '@nx/devkit',
-  '@nx/esbuild',
-  '@nx/eslint',
-  '@nx/eslint-plugin',
-  '@nx/expo',
-  '@nx/express',
-  '@nx/jest',
-  '@nx/nest',
-  '@nx/next',
-  '@nx/node',
-  '@nx/nuxt',
-  '@nx/playwright',
-  '@nx/plugin',
-  '@nx/react',
-  '@nx/react-native',
-  '@nx/remix',
-  '@nx/rollup',
-  '@nx/storybook',
-  '@nx/vite',
-  '@nx/vue',
-  '@nx/web',
-  '@nx/webpack',
-  '@nx/workspace',
-];
+export const coreNxPluginVersions = (
+  require('../../../package.json') as typeof import('../../../package.json')
+)['nx-migrations'].packageGroup.reduce(
+  (map, entry) => {
+    const packageName = typeof entry === 'string' ? entry : entry.package;
+    const version = typeof entry === 'string' ? nxVersion : entry.version;
+    return map.set(packageName, version);
+  },
+  // Package Name -> Desired Version
+  new Map<string, string>()
+);

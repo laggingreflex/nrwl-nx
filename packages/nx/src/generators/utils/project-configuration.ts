@@ -1,15 +1,8 @@
 import { minimatch } from 'minimatch';
-import { basename, join, relative } from 'path';
+import { basename, dirname, join, relative } from 'path';
 
-import {
-  buildProjectConfigurationFromPackageJson,
-  getGlobPatternsFromPackageManagerWorkspaces,
-  getNxPackageJsonWorkspacesPlugin,
-} from '../../plugins/package-json-workspaces';
-import {
-  buildProjectFromProjectJson,
-  ProjectJsonProjectsPlugin,
-} from '../../plugins/project-json/build-nodes/project-json';
+import { getGlobPatternsFromPackageManagerWorkspaces } from '../../plugins/package-json';
+import { buildProjectFromProjectJson } from '../../plugins/project-json/build-nodes/project-json';
 import { renamePropertyWithStableKeys } from '../../adapter/angular-json';
 import {
   ProjectConfiguration,
@@ -19,8 +12,7 @@ import {
   mergeProjectConfigurationIntoRootMap,
   readProjectConfigurationsFromRootMap,
 } from '../../project-graph/utils/project-configuration-utils';
-import { configurationGlobs } from '../../project-graph/utils/retrieve-workspace-files';
-import { globWithWorkspaceContext } from '../../utils/workspace-context';
+import { globWithWorkspaceContextSync } from '../../utils/workspace-context';
 import { output } from '../../utils/output';
 import { PackageJson } from '../../utils/package-json';
 import { joinPathFragments, normalizePath } from '../../utils/path';
@@ -28,6 +20,7 @@ import { readJson, writeJson } from './json';
 import { readNxJson } from './nx-json';
 
 import type { Tree } from '../tree';
+import { toProjectName } from '../../config/to-project-name';
 
 export { readNxJson, updateNxJson } from './nx-json';
 
@@ -64,6 +57,9 @@ export function addProjectConfiguration(
   }
 
   delete (projectConfiguration as any).$schema;
+
+  handleEmptyTargets(projectName, projectConfiguration);
+
   writeJson(tree, projectConfigFile, {
     name: projectName,
     $schema: getRelativeProjectJsonSchemaPath(tree, projectConfiguration),
@@ -84,16 +80,83 @@ export function updateProjectConfiguration(
   projectName: string,
   projectConfiguration: ProjectConfiguration
 ): void {
+  if (
+    tree.exists(joinPathFragments(projectConfiguration.root, 'project.json'))
+  ) {
+    updateProjectConfigurationInProjectJson(
+      tree,
+      projectName,
+      projectConfiguration
+    );
+  } else if (
+    tree.exists(joinPathFragments(projectConfiguration.root, 'package.json'))
+  ) {
+    updateProjectConfigurationInPackageJson(
+      tree,
+      projectName,
+      projectConfiguration
+    );
+  } else {
+    throw new Error(
+      `Cannot update Project ${projectName} at ${projectConfiguration.root}. It either doesn't exist yet, or may not use project.json for configuration. Use \`addProjectConfiguration()\` instead if you want to create a new project.`
+    );
+  }
+}
+
+function updateProjectConfigurationInPackageJson(
+  tree: Tree,
+  projectName: string,
+  projectConfiguration: ProjectConfiguration
+) {
+  const packageJsonFile = joinPathFragments(
+    projectConfiguration.root,
+    'package.json'
+  );
+
+  const packageJson = readJson<PackageJson>(tree, packageJsonFile);
+
+  projectConfiguration.name = projectName;
+  if (packageJson.name === projectConfiguration.name) {
+    delete projectConfiguration.name;
+  }
+
+  if (
+    projectConfiguration.targets &&
+    !Object.keys(projectConfiguration.targets).length
+  ) {
+    delete projectConfiguration.targets;
+  }
+
+  packageJson.nx = {
+    ...packageJson.nx,
+    ...projectConfiguration,
+  };
+
+  // We don't want to ever this since it is inferred
+  delete packageJson.nx.root;
+
+  // Only set `nx` property in `package.json` if it is a root project (necessary to mark it as Nx project),
+  // or if there are properties to be set. If it is empty, then avoid it so we don't add unnecessary boilerplate.
+  if (
+    projectConfiguration.root === '.' ||
+    Object.keys(packageJson.nx).length > 0
+  ) {
+    writeJson(tree, packageJsonFile, packageJson);
+  }
+}
+
+function updateProjectConfigurationInProjectJson(
+  tree: Tree,
+  projectName: string,
+  projectConfiguration: ProjectConfiguration
+) {
   const projectConfigFile = joinPathFragments(
     projectConfiguration.root,
     'project.json'
   );
 
-  if (!tree.exists(projectConfigFile)) {
-    throw new Error(
-      `Cannot update Project ${projectName} at ${projectConfiguration.root}. It either doesn't exist yet, or may not use project.json for configuration. Use \`addProjectConfiguration()\` instead if you want to create a new project.`
-    );
-  }
+  handleEmptyTargets(projectName, projectConfiguration);
+
   writeJson(tree, projectConfigFile, {
     name: projectConfiguration.name ?? projectName,
     $schema: getRelativeProjectJsonSchemaPath(tree, projectConfiguration),
@@ -191,22 +254,25 @@ function readAndCombineAllProjectConfigurations(tree: Tree): {
   const patterns = [
     '**/project.json',
     'project.json',
-    ...getGlobPatternsFromPackageManagerWorkspaces(tree.root, (p) =>
-      readJson(tree, p)
+    ...getGlobPatternsFromPackageManagerWorkspaces(
+      tree.root,
+      (p) => readJson(tree, p, { expectComments: true }),
+      <T extends Object>(p) => {
+        const content = tree.read(p, 'utf-8');
+        const { load } = require('@zkochan/js-yaml');
+        return load(content, { filename: p }) as T;
+      },
+      (p) => tree.exists(p)
     ),
   ];
-  const projectGlobPatterns = configurationGlobs([
-    { plugin: ProjectJsonProjectsPlugin },
-    { plugin: getNxPackageJsonWorkspacesPlugin(tree.root) },
-  ]);
-  const globbedFiles = globWithWorkspaceContext(tree.root, projectGlobPatterns);
+  const globbedFiles = globWithWorkspaceContextSync(tree.root, patterns);
   const createdFiles = findCreatedProjectFiles(tree, patterns);
   const deletedFiles = findDeletedProjectFiles(tree, patterns);
   const projectFiles = [...globbedFiles, ...createdFiles].filter(
     (r) => deletedFiles.indexOf(r) === -1
   );
 
-  const rootMap: Map<string, ProjectConfiguration> = new Map();
+  const rootMap: Record<string, ProjectConfiguration> = {};
   for (const projectFile of projectFiles) {
     if (basename(projectFile) === 'project.json') {
       const json = readJson(tree, projectFile);
@@ -220,20 +286,22 @@ function readAndCombineAllProjectConfigurations(tree: Tree): {
       );
     } else if (basename(projectFile) === 'package.json') {
       const packageJson = readJson<PackageJson>(tree, projectFile);
-      const config = buildProjectConfigurationFromPackageJson(
-        packageJson,
-        projectFile,
-        readNxJson(tree)
-      );
-      if (!rootMap.has(config.root)) {
+
+      // We don't want to have all of the extra inferred stuff in here, as
+      // when generators update the project they shouldn't inline that stuff.
+      // so rather than using `buildProjectFromPackageJson` and stripping it out
+      // we are going to build the config manually.
+      const config = {
+        root: dirname(projectFile),
+        name: packageJson.name ?? toProjectName(projectFile),
+        ...packageJson.nx,
+      };
+      if (!rootMap[config.root]) {
         mergeProjectConfigurationIntoRootMap(
           rootMap,
           // Inferred targets, tags, etc don't show up when running generators
           // This is to help avoid running into issues when trying to update the workspace
-          {
-            name: config.name,
-            root: config.root,
-          },
+          config,
           undefined,
           undefined,
           true
@@ -327,4 +395,23 @@ function toNewFormat(w: any): ProjectsConfigurations {
     w.version = 2;
   }
   return w;
+}
+
+function handleEmptyTargets(
+  projectName: string,
+  projectConfiguration: ProjectConfiguration
+): void {
+  if (
+    projectConfiguration.targets &&
+    !Object.keys(projectConfiguration.targets).length
+  ) {
+    // Re-order `targets` to appear after the `// target` comment.
+    delete projectConfiguration.targets;
+    projectConfiguration[
+      '// targets'
+    ] = `to see all targets run: nx show project ${projectName} --web`;
+    projectConfiguration.targets = {};
+  } else {
+    delete projectConfiguration['// targets'];
+  }
 }
