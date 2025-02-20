@@ -26,6 +26,8 @@ import {
   loadViteDynamicImport,
   validateTypes,
 } from '../../utils/executor-utils';
+import { type Plugin } from 'vite';
+import { isUsingTsSolutionSetup } from '@nx/js/src/utils/typescript/ts-solution-setup';
 
 export async function* viteBuildExecutor(
   options: Record<string, any> & ViteBuildExecutorOptions,
@@ -33,11 +35,14 @@ export async function* viteBuildExecutor(
 ) {
   process.env.VITE_CJS_IGNORE_WARNING = 'true';
   // Allows ESM to be required in CJS modules. Vite will be published as ESM in the future.
-  const { mergeConfig, build, loadConfigFromFile } =
-    await loadViteDynamicImport();
+  const { mergeConfig, build, resolveConfig } = await loadViteDynamicImport();
   const projectRoot =
     context.projectsConfigurations.projects[context.projectName].root;
-  createBuildableTsConfig(projectRoot, options, context);
+  const tsConfigForBuild = createBuildableTsConfig(
+    projectRoot,
+    options,
+    context
+  );
 
   const viteConfigPath = normalizeViteConfigFilePath(
     context.root,
@@ -50,24 +55,27 @@ export async function* viteBuildExecutor(
       : relative(context.cwd, joinPathFragments(context.root, projectRoot));
 
   const { buildOptions, otherOptions } = await getBuildExtraArgs(options);
+  const defaultMode = otherOptions?.mode ?? 'production';
 
-  const resolved = await loadConfigFromFile(
+  const resolved = await resolveConfig(
     {
-      mode: otherOptions?.mode ?? 'production',
-      command: 'build',
+      configFile: viteConfigPath,
+      mode: defaultMode,
     },
-    viteConfigPath
+    'build',
+    defaultMode,
+    process.env.NODE_ENV ?? defaultMode
   );
 
   const outDir =
     joinPathFragments(offsetFromRoot(projectRoot), options.outputPath) ??
-    resolved?.config?.build?.outDir;
+    resolved?.build?.outDir;
 
   const buildConfig = mergeConfig(
     {
       // This should not be needed as it's going to be set in vite.config.ts
       // but leaving it here in case someone did not migrate correctly
-      root: resolved.config.root ?? root,
+      root: resolved.root ?? root,
       configFile: viteConfigPath,
     },
     {
@@ -78,12 +86,17 @@ export async function* viteBuildExecutor(
       ...otherOptions,
     }
   );
-
-  if (!options.skipTypeCheck) {
+  // New TS Solution already has a typecheck target
+  if (!options.skipTypeCheck && !isUsingTsSolutionSetup()) {
     await validateTypes({
       workspaceRoot: context.root,
-      projectRoot: projectRoot,
-      tsconfig: options.tsConfig ?? getProjectTsConfigPath(projectRoot),
+      tsconfig: tsConfigForBuild,
+      isVueProject: Boolean(
+        resolved.plugins?.find(
+          (plugin: Plugin) =>
+            typeof plugin === 'object' && plugin?.name === 'vite:vue'
+        )
+      ),
     });
   }
 
@@ -105,7 +118,7 @@ export async function* viteBuildExecutor(
     if (context.projectGraph.nodes[context.projectName].type !== 'app') {
       logger.warn(
         stripIndents`The project ${context.projectName} is using the 'generatePackageJson' option which is deprecated for library projects. It should only be used for applications.
-        For libraries, configure the project to use the '@nx/dependency-checks' ESLint rule instead (https://nx.dev/packages/eslint-plugin/documents/dependency-checks).`
+        For libraries, configure the project to use the '@nx/dependency-checks' ESLint rule instead (https://nx.dev/nx-api/eslint-plugin/documents/dependency-checks).`
       );
     }
 
@@ -116,10 +129,12 @@ export async function* viteBuildExecutor(
         target: context.targetName,
         root: context.root,
         isProduction: !options.includeDevDependenciesInPackageJson, // By default we remove devDependencies since this is a production build.
+        skipOverrides: options.skipOverrides,
+        skipPackageManager: options.skipPackageManager,
       }
     );
 
-    builtPackageJson.type = 'module';
+    builtPackageJson.type ??= 'module';
 
     writeJsonFile(
       `${outDirRelativeToWorkspaceRoot}/package.json`,

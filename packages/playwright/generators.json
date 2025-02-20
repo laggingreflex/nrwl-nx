@@ -10,7 +10,13 @@
     "init": {
       "factory": "./src/generators/init/init#initGeneratorInternal",
       "schema": "./src/generators/init/schema.json",
-      "description": "Initializes a Playwright project in the current workspace"
+      "description": "Initializes a Playwright project in the current workspace",
+      "hidden": true
+    },
+    "convert-to-inferred": {
+      "factory": "./src/generators/convert-to-inferred/convert-to-inferred",
+      "schema": "./src/generators/convert-to-inferred/schema.json",
+      "description": "Convert existing Playwright project(s) using `@nx/playwright:playwright` executor to use `@nx/playwright/plugin`."
     }
   }
 }

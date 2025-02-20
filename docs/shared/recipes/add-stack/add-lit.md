@@ -13,7 +13,7 @@ Because we are not using an Nx plugin for Lit, there are few items we'll have to
 {% pill url="/ci/features/remote-cache" %}✅ Share Your Cache{% /pill %}
 {% pill url="/features/explore-graph" %}✅ Explore the Graph{% /pill %}
 {% pill url="/ci/features/distribute-task-execution" %}✅ Distribute Task Execution{% /pill %}
-{% pill url="/features/integrate-with-editors" %}✅ Integrate with Editors{% /pill %}
+{% pill url="/getting-started/editor-setup" %}✅ Integrate with Editors{% /pill %}
 {% pill url="/features/automate-updating-dependencies" %}✅ Automate Updating Nx{% /pill %}
 {% pill url="/features/enforce-module-boundaries" %}✅ Enforce Module Boundaries{% /pill %}
 {% pill url="/features/generate-code" %}🚫 Use Code Generators{% /pill %}
@@ -48,18 +48,23 @@ pnpm add -D lit http-server
 ```
 
 {% /tab %}
+
+{% tab label="bun" %}
+
+```shell
+nx add @nx/node
+bun add -D lit http-server
+```
+
+{% /tab %}
 {% /tabs %}
 
 ## Create an Application
 
-{% callout type="note" title="Directory Flag Behavior Changes" %}
-The command below uses the `as-provided` directory flag behavior, which is the default in Nx 16.8.0. If you're on an earlier version of Nx or using the `derived` option, omit the `--directory` flag. See the [as-provided vs. derived documentation](/deprecated/as-provided-vs-derived) for more details.
-{% /callout %}
-
 We'll start with a node application and then tweak the settings to match what we need. Add a new node application to your workspace with the following command:
 
 ```shell
-nx g @nx/node:app my-lit-app --directory=apps/my-lit-app
+nx g @nx/node:app apps/my-lit-app
 ```
 
 Choose `none` for the node framework, since we won't be using this as a node app.
@@ -176,14 +181,10 @@ nx serve my-lit-app
 
 ## Create a Library
 
-{% callout type="note" title="Directory Flag Behavior Changes" %}
-The command below uses the `as-provided` directory flag behavior, which is the default in Nx 16.8.0. If you're on an earlier version of Nx or using the `derived` option, omit the `--directory` flag. See the [as-provided vs. derived documentation](/deprecated/as-provided-vs-derived) for more details.
-{% /callout %}
-
 Let's create a library that our Lit application is going to consume. To create a new library, install the `@nx/js` package and run:
 
 ```shell
-nx g @nx/js:lib my-lib --directory=libs/my-lib
+nx g @nx/js:lib libs/my-lib
 ```
 
 Once the library is created, update the following files.

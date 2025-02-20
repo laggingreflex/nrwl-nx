@@ -5,6 +5,7 @@ export const noBuildOptions = `
     import { nxViteTsPaths } from '@nx/vite/plugins/nx-tsconfig-paths.plugin';
 
     export default defineConfig({
+      cacheDir: '../../node_modules/.vitest',
       plugins: [
         react(),
         nxViteTsPaths(),
@@ -12,9 +13,6 @@ export const noBuildOptions = `
 
       test: {
         globals: true,
-        cache: {
-          dir: '../../node_modules/.vitest',
-        },
         environment: 'jsdom',
         include: ['src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
       },
@@ -29,6 +27,7 @@ export const someBuildOptions = `
     import { nxViteTsPaths } from '@nx/vite/plugins/nx-tsconfig-paths.plugin';
 
     export default defineConfig({
+      cacheDir: '../../node_modules/.vitest',
       plugins: [
         react(),
         nxViteTsPaths(),
@@ -36,9 +35,6 @@ export const someBuildOptions = `
 
       test: {
         globals: true,
-        cache: {
-          dir: '../../node_modules/.vitest',
-        },
         environment: 'jsdom',
         include: ['src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
       },
@@ -98,6 +94,8 @@ export const noBuildOptionsHasTestOption = `
     import { nxViteTsPaths } from '@nx/vite/plugins/nx-tsconfig-paths.plugin';
 
     export default defineConfig({
+    
+      cacheDir: '../../node_modules/.vitest',
       plugins: [
         react(),
         nxViteTsPaths(),
@@ -105,9 +103,6 @@ export const noBuildOptionsHasTestOption = `
 
       test: {
         globals: true,
-        cache: {
-          dir: '../../node_modules/.vitest',
-        },
         environment: 'jsdom',
         include: ['src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
       },
@@ -147,6 +142,7 @@ export const hasEverything = `
     import { joinPathFragments } from '@nx/devkit';
 
     export default defineConfig({
+      cacheDir: '../../node_modules/.vitest',
       plugins: [
         dts({ entryRoot: 'src', tsConfigFilePath: joinPathFragments(__dirname, 'tsconfig.lib.json'), skipDiagnostics: true }),
         react(),
@@ -163,7 +159,7 @@ export const hasEverything = `
           fileName: 'index',
           // Change this to the formats you want to support.
           // Don't forget to update your package.json as well.
-          formats: ['es', 'cjs'],
+          formats: ['es'],
         },
         rollupOptions: {
           // External packages that should not be bundled into your library.
@@ -173,9 +169,6 @@ export const hasEverything = `
     
       test: {
         globals: true,
-        cache: {
-          dir: '../../../node_modules/.vitest',
-        },
         environment: 'jsdom',
         include: ['src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
       },
@@ -193,7 +186,7 @@ export const buildOption = `
         fileName: 'index',
         // Change this to the formats you want to support.
         // Don't forget to update your package.json as well.
-        formats: ['es', 'cjs']
+        formats: ['es']
       },
       rollupOptions: {
         // External packages that should not be bundled into your library.
@@ -205,7 +198,7 @@ export const buildOptionObject = {
     entry: 'src/index.ts',
     name: 'my-app',
     fileName: 'index',
-    formats: ['es', 'cjs'],
+    formats: ['es'],
   },
   rollupOptions: {
     external: ['react', 'react-dom', 'react/jsx-runtime'],
@@ -214,18 +207,12 @@ export const buildOptionObject = {
 
 export const testOption = `test: {
         globals: true,
-        cache: {
-          dir: '../node_modules/.vitest'
-        },
         environment: 'jsdom',
         include: ['src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
     },`;
 
 export const testOptionObject = {
   globals: true,
-  cache: {
-    dir: `../node_modules/.vitest`,
-  },
   environment: 'jsdom',
   include: ['src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
 };

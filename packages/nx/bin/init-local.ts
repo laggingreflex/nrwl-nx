@@ -4,8 +4,6 @@ import { commandsObject } from '../src/command-line/nx-commands';
 import { WorkspaceTypeAndRoot } from '../src/utils/find-workspace-root';
 import { stripIndents } from '../src/utils/strip-indents';
 
-import * as Mod from 'module';
-
 /**
  * Nx is being run inside a workspace.
  *
@@ -17,8 +15,6 @@ export function initLocal(workspace: WorkspaceTypeAndRoot) {
 
   try {
     performance.mark('init-local');
-
-    monkeyPatchRequire();
 
     if (workspace.type !== 'nx' && shouldDelegateToAngularCLI()) {
       console.warn(
@@ -81,10 +77,6 @@ export function rewriteTargetsAndProjects(args: string[]) {
   return newArgs;
 }
 
-function wrapIntoQuotesIfNeeded(arg: string) {
-  return arg.indexOf(':') > -1 ? `"${arg}"` : arg;
-}
-
 function isKnownCommand(command: string) {
   const commands = [
     ...Object.keys(
@@ -107,7 +99,14 @@ function isKnownCommand(command: string) {
 
 function shouldDelegateToAngularCLI() {
   const command = process.argv[2];
-  const commands = ['analytics', 'config', 'doc', 'update', 'completion'];
+  const commands = [
+    'analytics',
+    'cache',
+    'completion',
+    'config',
+    'doc',
+    'update',
+  ];
   return commands.indexOf(command) > -1;
 }
 
@@ -137,8 +136,12 @@ function handleAngularCLIFallbacks(workspace: WorkspaceTypeAndRoot) {
     if (!process.argv[3]) {
       console.log(`"ng completion" is not natively supported by Nx.
   Instead, you could try an Nx Editor Plugin for a visual tool to run Nx commands. If you're using VSCode, you can use the Nx Console plugin, or if you're using WebStorm, you could use one of the available community plugins.
-  For more information, see https://nx.dev/features/integrate-with-editors`);
+  For more information, see https://nx.dev/getting-started/editor-setup`);
     }
+  } else if (process.argv[2] === 'cache') {
+    console.log(`"ng cache" is not natively supported by Nx.
+To clear the cache, you can delete the ".angular/cache" directory (or the directory configured by "cli.cache.path" in the "nx.json" file).
+To update the cache configuration, you can directly update the relevant options in your "nx.json" file (https://angular.dev/reference/configs/workspace-config#cache-options).`);
   } else {
     try {
       // nx-ignore-next-line
@@ -154,43 +157,4 @@ function handleAngularCLIFallbacks(workspace: WorkspaceTypeAndRoot) {
       process.exit(1);
     }
   }
-}
-
-// TODO(v17): Remove this once the @nrwl/* packages are not
-function monkeyPatchRequire() {
-  const originalRequire = Mod.prototype.require;
-
-  (Mod.prototype.require as any) = function (...args) {
-    const modulePath = args[0];
-    if (!modulePath.startsWith('@nrwl/')) {
-      return originalRequire.apply(this, args);
-    } else {
-      try {
-        // Try the original require
-        return originalRequire.apply(this, args);
-      } catch (e) {
-        if (e.code !== 'MODULE_NOT_FOUND') {
-          throw e;
-        }
-
-        try {
-          // Retry the require with the @nx package
-          return originalRequire.apply(
-            this,
-            args.map((value, i) => {
-              if (i !== 0) {
-                return value;
-              } else {
-                return value.replace('@nrwl/', '@nx/');
-              }
-            })
-          );
-        } catch {
-          // Throw the original error
-          throw e;
-        }
-      }
-    }
-    // do some side-effect of your own
-  };
 }

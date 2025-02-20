@@ -6,10 +6,10 @@ import {
   Tokenizer,
   transform,
 } from '@markdoc/markdoc';
-import { load as yamlLoad } from 'js-yaml';
+import { load as yamlLoad } from '@zkochan/js-yaml';
 import React, { ReactNode } from 'react';
 import { Heading } from './lib/nodes/heading.component';
-import { heading } from './lib/nodes/heading.schema';
+import { getHeadingSchema } from './lib/nodes/heading.schema';
 import { getImageSchema } from './lib/nodes/image.schema';
 import { CustomLink } from './lib/nodes/link.component';
 import { link } from './lib/nodes/link.schema';
@@ -19,8 +19,6 @@ import { CallToAction } from './lib/tags/call-to-action.component';
 import { callToAction } from './lib/tags/call-to-action.schema';
 import { Card, Cards, LinkCard } from './lib/tags/cards.component';
 import { card, cards, linkCard } from './lib/tags/cards.schema';
-import { Disclosure } from './lib/tags/disclosure.component';
-import { disclosure } from './lib/tags/disclosure.schema';
 import { GithubRepository } from './lib/tags/github-repository.component';
 import { githubRepository } from './lib/tags/github-repository.schema';
 import { StackblitzButton } from './lib/tags/stackblitz-button.component';
@@ -45,29 +43,30 @@ import { SideBySide } from './lib/tags/side-by-side.component';
 import { sideBySide } from './lib/tags/side-by-side.schema';
 import { Tab, Tabs } from './lib/tags/tabs.component';
 import { tab, tabs } from './lib/tags/tabs.schema';
+import { Tweet, tweet } from '@nx/nx-dev/ui-common';
 import { YouTube, youtube } from '@nx/nx-dev/ui-common';
-import {
-  TerminalVideo,
-  terminalVideo,
-} from './lib/tags/terminal-video.component';
 import { VideoLink, videoLink } from './lib/tags/video-link.component';
 // import { SvgAnimation, svgAnimation } from './lib/tags/svg-animation.component';
 import { Pill } from './lib/tags/pill.component';
 import { pill } from './lib/tags/pill.schema';
-import { frameworkIcons } from './lib/icons';
 import { fence } from './lib/nodes/fence.schema';
 import { FenceWrapper } from './lib/nodes/fence-wrapper.component';
-
-// TODO fix this export
-export { GithubRepository } from './lib/tags/github-repository.component';
+import { VideoPlayer, videoPlayer } from './lib/tags/video-player.component';
+import { TableOfContents } from './lib/tags/table-of-contents.component';
+import { tableOfContents } from './lib/tags/table-of-contents.schema';
+import { Testimonial, testimonial } from './lib/tags/testimonial.component';
+import { metrics } from './lib/tags/metrics.schema';
+import { Metrics } from './lib/tags/metrics.component';
+export { CallToAction };
 
 export const getMarkdocCustomConfig = (
-  documentFilePath: string
+  documentFilePath: string,
+  headingClass: string = ''
 ): { config: any; components: any } => ({
   config: {
     nodes: {
       fence,
-      heading,
+      heading: getHeadingSchema(headingClass),
       image: getImageSchema(documentFilePath),
       link,
     },
@@ -76,13 +75,13 @@ export const getMarkdocCustomConfig = (
       'call-to-action': callToAction,
       card,
       cards,
-      disclosure,
       'link-card': linkCard,
       'github-repository': githubRepository,
       'stackblitz-button': stackblitzButton,
       graph,
       iframe,
       'install-nx-console': installNxConsole,
+      'video-player': videoPlayer,
       persona,
       personas,
       'project-details': projectDetails,
@@ -92,9 +91,12 @@ export const getMarkdocCustomConfig = (
       'side-by-side': sideBySide,
       tab,
       tabs,
+      testimonial,
+      toc: tableOfContents,
+      tweet,
       youtube,
-      'terminal-video': terminalVideo,
       'video-link': videoLink,
+      metrics,
       // 'svg-animation': svgAnimation,
     },
   },
@@ -103,7 +105,6 @@ export const getMarkdocCustomConfig = (
     CallToAction,
     Card,
     Cards,
-    Disclosure,
     LinkCard,
     CustomLink,
     FenceWrapper,
@@ -122,9 +123,13 @@ export const getMarkdocCustomConfig = (
     SideBySide,
     Tab,
     Tabs,
+    TableOfContents,
+    Testimonial,
+    Tweet,
     YouTube,
-    TerminalVideo,
     VideoLink,
+    VideoPlayer,
+    Metrics,
     // SvgAnimation,
   },
 });
@@ -134,23 +139,34 @@ const tokenizer = new Tokenizer({
   allowComments: true,
 });
 
-export const parseMarkdown: (markdown: string) => Node = (markdown) => {
+const parseMarkdown: (markdown: string) => Node = (markdown) => {
   const tokens = tokenizer.tokenize(markdown);
   return parse(tokens);
 };
 
-export { frameworkIcons };
+export const extractFrontmatter = (
+  documentContent: string
+): Record<string, any> => {
+  const ast = parseMarkdown(documentContent);
+  const frontmatter = ast.attributes['frontmatter']
+    ? (yamlLoad(ast.attributes['frontmatter']) as Record<string, any>)
+    : {};
+  return frontmatter;
+};
 
 export const renderMarkdown: (
   documentContent: string,
-  options: { filePath: string }
+  options: { filePath: string; headingClass?: string }
 ) => {
   metadata: Record<string, any>;
   node: ReactNode;
   treeNode: RenderableTreeNode;
 } = (documentContent, options = { filePath: '' }) => {
   const ast = parseMarkdown(documentContent);
-  const configuration = getMarkdocCustomConfig(options.filePath);
+  const configuration = getMarkdocCustomConfig(
+    options.filePath,
+    options.headingClass
+  );
   const treeNode = transform(ast, configuration.config);
 
   return {
@@ -163,3 +179,6 @@ export const renderMarkdown: (
     treeNode,
   };
 };
+
+export { GithubRepository } from './lib/tags/github-repository.component';
+export { Metrics };

@@ -1,3 +1,5 @@
+import type { DevRemoteDefinition } from '../../builders/utilities/module-federation';
+
 interface BaseSchema {
   port?: number;
   host?: string;
@@ -16,7 +18,7 @@ interface BaseSchema {
   hmr?: boolean;
   watch?: boolean;
   poll?: number;
-  devRemotes?: string[];
+  devRemotes?: DevRemoteDefinition[];
   skipRemotes?: string[];
   pathToManifestFile?: string;
   static?: boolean;
@@ -37,7 +39,9 @@ export type SchemaWithBuildTarget = BaseSchema & {
 export type Schema = SchemaWithBrowserTarget | SchemaWithBuildTarget;
 
 export type NormalizedSchema = SchemaWithBuildTarget & {
+  devRemotes: DevRemoteDefinition[];
   liveReload: boolean;
   open: boolean;
   ssl: boolean;
+  verbose: boolean;
 };

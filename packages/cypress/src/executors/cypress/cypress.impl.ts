@@ -41,6 +41,7 @@ export interface CypressExecutorOptions extends Json {
   port?: number | 'cypress-auto';
   quiet?: boolean;
   runnerUi?: boolean;
+  autoCancelAfterFailures?: boolean | number;
 }
 
 interface NormalizedCypressExecutorOptions extends CypressExecutorOptions {
@@ -57,13 +58,17 @@ export default async function cypressExecutor(
   process.env.NX_CYPRESS_TARGET_CONFIGURATION = context.configurationName;
   let success;
 
-  for await (const devServerValues of startDevServer(options, context)) {
+  const generatorInstance = startDevServer(options, context);
+  for await (const devServerValues of generatorInstance) {
     try {
       success = await runCypress(devServerValues.baseUrl, {
         ...options,
         portLockFilePath: devServerValues.portLockFilePath,
       });
-      if (!options.watch) break;
+      if (!options.watch) {
+        generatorInstance.return();
+        break;
+      }
     } catch (e) {
       logger.error(e.message);
       success = false;
@@ -213,6 +218,10 @@ async function runCypress(
   }
   if (opts.quiet) {
     options.quiet = opts.quiet;
+  }
+
+  if (opts.autoCancelAfterFailures !== undefined) {
+    options.autoCancelAfterFailures = opts.autoCancelAfterFailures;
   }
 
   options.testingType = opts.testingType;

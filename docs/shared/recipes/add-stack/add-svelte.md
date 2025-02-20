@@ -13,7 +13,7 @@ Because we are not using a Nx plugin for Svelte, there are a few items we'll hav
 {% pill url="/ci/features/remote-cache" %}✅ Share Your Cache{% /pill %}
 {% pill url="/features/explore-graph" %}✅ Explore the Graph{% /pill %}
 {% pill url="/ci/features/distribute-task-execution" %}✅ Distribute Task Execution{% /pill %}
-{% pill url="/features/integrate-with-editors" %}✅ Integrate with Editors{% /pill %}
+{% pill url="/getting-started/editor-setup" %}✅ Integrate with Editors{% /pill %}
 {% pill url="/features/automate-updating-dependencies" %}✅ Automate Updating Nx{% /pill %}
 {% pill url="/features/enforce-module-boundaries" %}✅ Enforce Module Boundaries{% /pill %}
 {% pill url="/features/generate-code" %}🚫 Use Code Generators{% /pill %}
@@ -74,6 +74,15 @@ nx add @nx/vite @nx/js
 
 ```shell
 pnpm add -D vitest vite svelte svelte-check @sveltejs/vite-plugin-svelte
+nx add @nx/vite @nx/js
+```
+
+{% /tab %}
+
+{% tab label="bun" %}
+
+```shell
+bun add -D vitest vite svelte svelte-check @sveltejs/vite-plugin-svelte
 nx add @nx/vite @nx/js
 ```
 
@@ -255,12 +264,8 @@ Navigate to `http://localhost:4200` and you should see your application.
 
 Instead of having our Counter directly defined in `App.svelte` file, let's create a library that we can import into our application.
 
-{% callout type="note" title="Directory Flag Behavior Changes" %}
-The command below uses the `as-provided` directory flag behavior, which is the default in Nx 16.8.0. If you're on an earlier version of Nx or using the `derived` option, omit the `--directory` flag. See the [as-provided vs. derived documentation](/deprecated/as-provided-vs-derived) for more details.
-{% /callout %}
-
 ```shell
-nx generate @nx/js:library --name=Counter --directory=libs/counter --unitTestRunner=vitest --bundler=vite --importPath=@acme/counter
+nx generate @nx/js:library libs/counter --unitTestRunner=vitest --bundler=vite --importPath=@acme/counter
 ```
 
 Create the Counter component at `libs/counter/src/lib/Counter.svelte` and copy the contents of your `src/App.svelte` file into it.

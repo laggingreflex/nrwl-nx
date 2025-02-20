@@ -12,6 +12,8 @@ import {
   runCLIAsync,
   runE2ETests,
   killPorts,
+  createFile,
+  removeFile,
 } from 'e2e/utils';
 import { join } from 'path';
 
@@ -22,7 +24,7 @@ describe('@nx/expo', () => {
     newProject();
     appName = uniq('app');
     runCLI(
-      `generate @nx/expo:app ${appName} --project-name-and-root-format=as-provided --no-interactive`
+      `generate @nx/expo:app ${appName} --no-interactive --unitTestRunner=jest --linter=eslint`
     );
   });
 
@@ -53,12 +55,12 @@ describe('@nx/expo', () => {
 
   it('should start the app', async () => {
     let process: ChildProcess;
-    const port = 8081;
+    const port = 8088;
 
     try {
       process = await runCommandUntil(
         `start ${appName} -- --port=${port}`,
-        (output) => output.includes(`http://localhost:8081`)
+        (output) => output.includes(`http://localhost:8088`)
       );
     } catch (err) {
       console.error(err);
@@ -72,12 +74,12 @@ describe('@nx/expo', () => {
 
   it('should serve the app', async () => {
     let process: ChildProcess;
-    const port = 8081;
+    const port = 8071;
 
     try {
       process = await runCommandUntil(
         `serve ${appName} -- --port=${port}`,
-        (output) => output.includes(`http://localhost:8081`)
+        (output) => output.includes(`http://localhost:8071`)
       );
     } catch (err) {
       console.error(err);
@@ -112,6 +114,30 @@ describe('@nx/expo', () => {
     );
   });
 
+  it('should install', async () => {
+    // run install command
+    let installResults = await runCLIAsync(
+      `install ${appName} --force --no-interactive`
+    );
+    expect(installResults.combinedOutput).toContain(
+      'Successfully ran target install'
+    );
+
+    installResults = await runCLIAsync(
+      `install ${appName} --force --packages=@react-native-async-storage/async-storage,react-native-image-picker --no-interactive`
+    );
+    expect(installResults.combinedOutput).toContain(
+      'Successfully ran target install'
+    );
+    const packageJson = readJson(join(appName, 'package.json'));
+    expect(packageJson).toMatchObject({
+      dependencies: {
+        '@react-native-async-storage/async-storage': '*',
+        'react-native-image-picker': '*',
+      },
+    });
+  });
+
   it('should run e2e for cypress', async () => {
     if (runE2ETests()) {
       const results = runCLI(`e2e ${appName}-e2e`);
@@ -128,11 +154,25 @@ describe('@nx/expo', () => {
 
   it('should create storybook with application', async () => {
     runCLI(
-      `generate @nx/react:storybook-configuration ${appName} --generateStories --no-interactive`
+      `generate @nx/react:storybook-configuration ${appName} --generateStories --no-interactive --unitTestRunner=jest --linter=eslint`
     );
     checkFilesExist(
       `${appName}/.storybook/main.ts`,
       `${appName}/src/app/App.stories.tsx`
     );
+  });
+
+  it('should work with app.config.ts', () => {
+    const appJson = join(appName, `app.json`);
+    const appJsonContent = readJson(appJson);
+    removeFile(appJson);
+    createFile(
+      join(appName, 'app.config.ts'),
+      `export default { expo: { name: 'my-app', slug: 'my-app' } };`
+    );
+    const result = runCLI(`show project ${appName} --json false`);
+    expect(result).toContain('start:');
+    expect(result).toContain('serve:');
+    createFile(appJson, JSON.stringify(appJsonContent));
   });
 });

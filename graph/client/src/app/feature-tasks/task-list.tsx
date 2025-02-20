@@ -10,7 +10,7 @@ import {
 import { WorkspaceLayout } from '../interfaces';
 import { ExclamationCircleIcon, EyeIcon } from '@heroicons/react/24/outline';
 import { ReactNode } from 'react';
-import { Tooltip } from '@nx/graph/ui-tooltips';
+import { Tooltip } from '@nx/graph/legacy/tooltips';
 import { TaskGraphErrorTooltip } from './task-graph-error-tooltip';
 
 interface SidebarProject {
@@ -87,11 +87,11 @@ function SubProjectList({
   return (
     <>
       {headerText !== '' ? (
-        <h3 className="mt-4 cursor-text py-2 text-sm font-semibold uppercase tracking-wide text-slate-800 dark:text-slate-200 lg:text-xs">
+        <h3 className="mt-4 cursor-text py-2 text-sm font-semibold uppercase tracking-wide text-slate-800 lg:text-xs dark:text-slate-200">
           {headerText}
         </h3>
       ) : null}
-      <ul className="mt-2 -ml-3">
+      <ul className="-ml-3 mt-2">
         {sortedProjects.map((project) => {
           return (
             <ProjectListItem

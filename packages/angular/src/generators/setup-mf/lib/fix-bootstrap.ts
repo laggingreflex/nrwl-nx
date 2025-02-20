@@ -1,5 +1,4 @@
-import type { Tree } from '@nx/devkit';
-import { joinPathFragments } from '@nx/devkit';
+import { joinPathFragments, type Tree } from '@nx/devkit';
 import type { Schema } from '../schema';
 
 export function fixBootstrap(tree: Tree, appRoot: string, options: Schema) {
@@ -12,20 +11,28 @@ export function fixBootstrap(tree: Tree, appRoot: string, options: Schema) {
   }
 
   const bootstrapImportCode = `import('./bootstrap').catch(err => console.error(err))`;
+  if (options.mfType === 'remote' || options.federationType === 'static') {
+    tree.write(mainFilePath, `${bootstrapImportCode};`);
+  } else {
+    let manifestPath = '/assets/module-federation.manifest.json';
+    if (
+      tree.exists(
+        joinPathFragments(appRoot, 'public/module-federation.manifest.json')
+      )
+    ) {
+      manifestPath = '/module-federation.manifest.json';
+    }
 
-  const fetchMFManifestCode = `import { setRemoteDefinitions } from '@nx/angular/mf';
+    const fetchMFManifestCode = `import { init } from '@module-federation/enhanced/runtime';
 
-fetch('/assets/module-federation.manifest.json')
+fetch('${manifestPath}')
   .then((res) => res.json())
-  .then(definitions => setRemoteDefinitions(definitions))
+  .then((remotes: Record<string, string>) => Object.entries(remotes).map(([name, entry]) => ({ name,entry})))
+  .then(remotes => init({name: '${options.appName}', remotes}))
   .then(() => ${bootstrapImportCode});`;
 
-  tree.write(
-    mainFilePath,
-    options.mfType === 'host' && options.federationType === 'dynamic'
-      ? fetchMFManifestCode
-      : `${bootstrapImportCode};`
-  );
+    tree.write(mainFilePath, fetchMFManifestCode);
+  }
 }
 
 const standaloneBootstrapCode =

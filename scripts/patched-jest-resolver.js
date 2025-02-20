@@ -63,7 +63,10 @@ module.exports = function (path, options) {
   }
   // Try to use the defaultResolver
   try {
-    if (path.startsWith('@nx/')) throw new Error('custom resolution');
+    // powerpack packages are installed via npm and resolved like any other packages
+    if (path.startsWith('@nx/') && !path.startsWith('@nx/powerpack-')) {
+      throw new Error('custom resolution');
+    }
     if (path.startsWith('nx/')) throw new Error('custom resolution');
 
     if (path.indexOf('@nx/workspace') > -1) {
@@ -82,11 +85,16 @@ module.exports = function (path, options) {
     // Fallback to using typescript
     compilerSetup = compilerSetup || getCompilerSetup(options.rootDir);
     const { compilerOptions, host } = compilerSetup;
-    return ts.resolveModuleName(
+    const name = ts.resolveModuleName(
       path,
       join(options.basedir, 'fake-placeholder.ts'),
       compilerOptions,
       host
     ).resolvedModule.resolvedFileName;
+    if (name.startsWith('..')) {
+      return path_1.join(options.rootDir, name);
+    } else {
+      return name;
+    }
   }
 };

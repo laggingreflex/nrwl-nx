@@ -3,8 +3,10 @@
  * It encapsulates the package manager specific logic and implementation details.
  */
 
-import { readFileSync, existsSync } from 'fs';
-import { join } from 'path';
+import { execSync } from 'node:child_process';
+import { readFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { gte } from 'semver';
 
 import {
   detectPackageManager,
@@ -37,16 +39,29 @@ import {
 import { pruneProjectGraph } from './project-graph-pruning';
 import { normalizePackageJson } from './utils/package-json';
 import { readJsonFile } from '../../../utils/fileutils';
-import { CreateDependenciesContext } from '../../../utils/nx-plugin';
+import {
+  CreateDependenciesContext,
+  CreateNodesContext,
+} from '../../../project-graph/plugins';
 
 const YARN_LOCK_FILE = 'yarn.lock';
 const NPM_LOCK_FILE = 'package-lock.json';
 const PNPM_LOCK_FILE = 'pnpm-lock.yaml';
-export const LOCKFILES = [YARN_LOCK_FILE, NPM_LOCK_FILE, PNPM_LOCK_FILE];
+const BUN_LOCK_FILE = 'bun.lockb';
+const BUN_TEXT_LOCK_FILE = 'bun.lock';
+export const LOCKFILES = [
+  YARN_LOCK_FILE,
+  NPM_LOCK_FILE,
+  PNPM_LOCK_FILE,
+  BUN_LOCK_FILE,
+  BUN_TEXT_LOCK_FILE,
+];
 
 const YARN_LOCK_PATH = join(workspaceRoot, YARN_LOCK_FILE);
 const NPM_LOCK_PATH = join(workspaceRoot, NPM_LOCK_FILE);
 const PNPM_LOCK_PATH = join(workspaceRoot, PNPM_LOCK_FILE);
+const BUN_LOCK_PATH = join(workspaceRoot, BUN_LOCK_FILE);
+const BUN_TEXT_LOCK_PATH = join(workspaceRoot, BUN_TEXT_LOCK_FILE);
 
 /**
  * Parses lock file and maps dependencies and metadata to {@link LockFileGraph}
@@ -54,11 +69,14 @@ const PNPM_LOCK_PATH = join(workspaceRoot, PNPM_LOCK_FILE);
 export function getLockFileNodes(
   packageManager: PackageManager,
   contents: string,
-  lockFileHash: string
+  lockFileHash: string,
+  context: CreateNodesContext
 ): Record<string, ProjectGraphExternalNode> {
   try {
     if (packageManager === 'yarn') {
-      const packageJson = readJsonFile('package.json');
+      const packageJson = readJsonFile(
+        join(context.workspaceRoot, 'package.json')
+      );
       return getYarnLockfileNodes(contents, lockFileHash, packageJson);
     }
     if (packageManager === 'pnpm') {
@@ -66,6 +84,11 @@ export function getLockFileNodes(
     }
     if (packageManager === 'npm') {
       return getNpmLockfileNodes(contents, lockFileHash);
+    }
+    if (packageManager === 'bun') {
+      // bun uses yarn v1 for the file format
+      const packageJson = readJsonFile('package.json');
+      return getYarnLockfileNodes(contents, lockFileHash, packageJson);
     }
   } catch (e) {
     if (!isPostInstallProcess()) {
@@ -98,6 +121,10 @@ export function getLockFileDependencies(
     if (packageManager === 'npm') {
       return getNpmLockfileDependencies(contents, lockFileHash, context);
     }
+    if (packageManager === 'bun') {
+      // bun uses yarn v1 for the file format
+      return getYarnLockfileDependencies(contents, lockFileHash, context);
+    }
   } catch (e) {
     if (!isPostInstallProcess()) {
       output.error({
@@ -120,6 +147,9 @@ export function lockFileExists(packageManager: PackageManager): boolean {
   if (packageManager === 'npm') {
     return existsSync(NPM_LOCK_PATH);
   }
+  if (packageManager === 'bun') {
+    return existsSync(BUN_LOCK_PATH) || existsSync(BUN_TEXT_LOCK_PATH);
+  }
   throw new Error(
     `Unknown package manager ${packageManager} or lock file missing`
   );
@@ -140,6 +170,34 @@ export function getLockFileName(packageManager: PackageManager): string {
   if (packageManager === 'npm') {
     return NPM_LOCK_FILE;
   }
+  if (packageManager === 'bun') {
+    return BUN_LOCK_FILE;
+  }
+  throw new Error(`Unknown package manager: ${packageManager}`);
+}
+
+function getLockFilePath(packageManager: PackageManager): string {
+  if (packageManager === 'yarn') {
+    return YARN_LOCK_PATH;
+  }
+  if (packageManager === 'pnpm') {
+    return PNPM_LOCK_PATH;
+  }
+  if (packageManager === 'npm') {
+    return NPM_LOCK_PATH;
+  }
+  if (packageManager === 'bun') {
+    try {
+      const bunVersion = execSync('bun --version').toString().trim();
+      // In version 1.2.0, bun switched to a text based lockfile format by default
+      if (gte(bunVersion, '1.2.0')) {
+        return BUN_TEXT_LOCK_FILE;
+      }
+      return BUN_LOCK_PATH;
+    } catch {
+      return BUN_LOCK_PATH;
+    }
+  }
   throw new Error(`Unknown package manager: ${packageManager}`);
 }
 
@@ -157,7 +215,7 @@ export function createLockFile(
   packageManager: PackageManager = detectPackageManager(workspaceRoot)
 ): string {
   const normalizedPackageJson = normalizePackageJson(packageJson);
-  const content = readFileSync(getLockFileName(packageManager), 'utf8');
+  const content = readFileSync(getLockFilePath(packageManager), 'utf8');
 
   try {
     if (packageManager === 'yarn') {
@@ -171,6 +229,12 @@ export function createLockFile(
     if (packageManager === 'npm') {
       const prunedGraph = pruneProjectGraph(graph, packageJson);
       return stringifyNpmLockfile(prunedGraph, content, normalizedPackageJson);
+    }
+    if (packageManager === 'bun') {
+      output.log({
+        title:
+          "Unable to create bun lock files. Run bun install it's just as quick",
+      });
     }
   } catch (e) {
     if (!isPostInstallProcess()) {

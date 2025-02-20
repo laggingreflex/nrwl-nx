@@ -9,7 +9,7 @@ Because we are using an Nx plugin for Express, all the features of Nx are availa
 {% pill url="/ci/features/remote-cache" %}✅ Share Your Cache{% /pill %}
 {% pill url="/features/explore-graph" %}✅ Explore the Graph{% /pill %}
 {% pill url="/ci/features/distribute-task-execution" %}✅ Distribute Task Execution{% /pill %}
-{% pill url="/features/integrate-with-editors" %}✅ Integrate with Editors{% /pill %}
+{% pill url="/getting-started/editor-setup" %}✅ Integrate with Editors{% /pill %}
 {% pill url="/features/automate-updating-dependencies" %}✅ Automate Updating Nx{% /pill %}
 {% pill url="/features/enforce-module-boundaries" %}✅ Enforce Module Boundaries{% /pill %}
 {% pill url="/features/generate-code" %}✅ Use Code Generators{% /pill %}
@@ -29,12 +29,8 @@ nx add @nx/express
 
 Use the `app` generator to create a new Express app.
 
-{% callout type="note" title="Directory Flag Behavior Changes" %}
-The command below uses the `as-provided` directory flag behavior, which is the default in Nx 16.8.0. If you're on an earlier version of Nx or using the `derived` option, omit the `--directory` flag. See the [as-provided vs. derived documentation](/deprecated/as-provided-vs-derived) for more details.
-{% /callout %}
-
 ```shell
-nx g @nx/express:app my-express-api --directory=apps/my-express-api
+nx g @nx/express:app apps/my-express-api
 ```
 
 Serve the API by running
@@ -49,12 +45,8 @@ This starts the application on localhost:3333/api by default.
 
 The `@nx/express` plugin does not have a `library` generator, but we can use the `library` generator from the `@nx/js` plugin. To create a new library, install the `@nx/js` package and run:
 
-{% callout type="note" title="Directory Flag Behavior Changes" %}
-The command below uses the `as-provided` directory flag behavior, which is the default in Nx 16.8.0. If you're on an earlier version of Nx or using the `derived` option, omit the `--directory` flag. See the [as-provided vs. derived documentation](/deprecated/as-provided-vs-derived) for more details.
-{% /callout %}
-
 ```shell
-nx g @nx/js:lib my-lib --directory=libs/my-lib
+nx g @nx/js:lib libs/my-lib
 ```
 
 Once the library is created, update the following files.
@@ -73,13 +65,14 @@ export function someFunction(): string {
 
 import express from 'express';
 import * as path from 'path';
+import { someFunction } from '@my-express-app/my-lib';
 
 const app = express();
 
 app.use('/assets', express.static(path.join(__dirname, 'assets')));
 
 app.get('/api', (req, res) => {
-  res.send({ message: 'Welcome to my-express-app!' });
+  res.send({ message: `Welcome to my-express-app! ${someFunction()}` });
 });
 
 const port = process.env.PORT || 3333;

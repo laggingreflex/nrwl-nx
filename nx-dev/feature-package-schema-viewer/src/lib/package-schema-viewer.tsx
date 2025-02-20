@@ -26,7 +26,7 @@ export function PackageSchemaViewer({
     seo: {
       title: `${pkg.packageName}:${schema.name} | Nx`,
       description:
-        'Nx is a build system with built-in tooling and advanced CI capabilities. It helps you maintain and scale monorepos, both locally and on CI.',
+        'Build system, optimized for monorepos, with AI-powered architectural awareness and advanced CI capabilities.',
       imageUrl: `https://nx.dev/images/open-graph/${router.asPath
         .replace('/', '')
         .replace(/\//gi, '-')}.jpg`,

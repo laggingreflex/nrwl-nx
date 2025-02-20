@@ -7,13 +7,15 @@ import {
 import { VitestExecutorOptions } from '../schema';
 import { normalizeViteConfigFilePath } from '../../../utils/options-utils';
 import { relative } from 'path';
-import { loadViteDynamicImport } from '../../../utils/executor-utils';
+import {
+  loadViteDynamicImport,
+  loadVitestDynamicImport,
+} from '../../../utils/executor-utils';
 
 export async function getOptions(
   options: VitestExecutorOptions,
   context: ExecutorContext,
-  projectRoot: string,
-  extraArgs: Record<string, any>
+  projectRoot: string
 ) {
   // Allows ESM to be required in CJS modules. Vite will be published as ESM in the future.
   const { loadConfigFromFile, mergeConfig } = await loadViteDynamicImport();
@@ -38,7 +40,7 @@ export async function getOptions(
 
   const resolved = await loadConfigFromFile(
     {
-      mode: extraArgs?.mode ?? 'production',
+      mode: options?.mode ?? 'production',
       command: 'serve',
     },
     viteConfigPath
@@ -59,55 +61,38 @@ export async function getOptions(
       ? process.cwd()
       : relative(context.cwd, joinPathFragments(context.root, projectRoot));
 
-  const normalizedExtraArgs = normalizeArgs(extraArgs);
+  const { parseCLI } = await loadVitestDynamicImport();
+
+  const {
+    options: { watch, ...normalizedExtraArgs },
+  } = parseCLI(['vitest', ...getOptionsAsArgv(options)]);
 
   const settings = {
+    // Explicitly set watch mode to false if not provided otherwise vitest
+    // will enable watch mode by default for non CI environments
+    watch: watch ?? false,
     ...normalizedExtraArgs,
     // This should not be needed as it's going to be set in vite.config.ts
     // but leaving it here in case someone did not migrate correctly
     root: resolved.config.root ?? root,
-    configFile: viteConfigPath,
+    config: viteConfigPath,
   };
 
   return mergeConfig(resolved?.config?.['test'] ?? {}, settings);
 }
 
-export async function getExtraArgs(
-  options: VitestExecutorOptions
-): Promise<Record<string, any>> {
-  // support passing extra args to vite cli
-  const extraArgs: Record<string, any> = {};
-  for (const key of Object.keys(options)) {
-    extraArgs[key] = options[key];
+export function getOptionsAsArgv(obj: Record<string, any>): string[] {
+  const argv: string[] = [];
+
+  for (const [key, value] of Object.entries(obj)) {
+    if (Array.isArray(value)) {
+      value.forEach((item) => argv.push(`--${key}=${item}`));
+    } else if (typeof value === 'object' && value !== null) {
+      argv.push(`--${key}='${JSON.stringify(value)}'`);
+    } else {
+      argv.push(`--${key}=${value}`);
+    }
   }
 
-  return extraArgs;
-}
-
-// normalizes some args that were previously normalized by `startVitest` until this is fixed
-// https://github.com/vitest-dev/vitest/pull/5126/files#diff-49ef635be88fe607c8682e81ab56b061ba9aafd5c94a5690a70b90a54604cd24L40-L62
-function normalizeArgs(extraArgs: Record<string, any>) {
-  const args = { ...extraArgs };
-
-  if (typeof args.coverage === 'boolean') {
-    args.coverage = { enabled: args.coverage };
-  }
-  // running "vitest --browser", assumes browser name is set in the config
-  if (typeof args.browser === 'boolean') {
-    args.browser = { enabled: args.browser } as any;
-  }
-  // running "vitest --browser=chrome"
-  if (typeof args.browser === 'string') {
-    args.browser = { enabled: true, name: args.browser };
-  }
-  if (typeof args.typecheck === 'boolean') {
-    args.typecheck = { enabled: true };
-  }
-  if (typeof args.typecheck?.only === 'boolean') {
-    args.typecheck ??= {};
-    args.typecheck.only = true;
-    args.typecheck.enabled = true;
-  }
-
-  return args;
+  return argv;
 }

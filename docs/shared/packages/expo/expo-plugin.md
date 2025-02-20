@@ -27,6 +27,18 @@ nx add @nx/expo
 
 This will install the correct version of `@nx/expo`.
 
+{% /tab %}
+{% tab label="Nx < 18" %}
+
+Install the `@nx/expo` package with your package manager.
+
+```shell
+npm add -D @nx/expo
+```
+
+{% /tab %}
+{% /tabs %}
+
 ### How @nx/expo Infers Tasks
 
 The `@nx/expo` plugin will create a task for any project that has an app configuration file present. Any of the following files will be recognized as an app configuration file:
@@ -76,21 +88,12 @@ The `@nx/expo/plugin` is configured in the `plugins` array in `nx.json`.
 
 Once a Expo configuration file has been identified, the targets are created with the name you specify under `startTargetName`, `serveTargetName`, `runIosTargetName`, `runAndroidTargetname`, `exportTargetName`, `prebuildTargetName`, `installTargetName`, `buildTargetName` or `submitTargetName` in the `nx.json` `plugins` array. The default names for the inferred targets are `start`, `serve`, `run-ios`, `run-anroid`, `export`, `prebuild`, `install`, `build` and `submit`.
 
-{% /tab %}
-{% tab label="Nx < 18" %}
-
-Install the `@nx/expo` package with your package manager.
-
-```shell
-npm add -D @nx/expo
-```
-
 ### Creating Applications
 
 Add a new application to your workspace with the following command:
 
 ```shell
-nx g @nx/expo:app my-app
+nx g @nx/expo:app apps/my-app
 ```
 
 Start the application by running:
@@ -104,7 +107,7 @@ nx start my-app
 To generate a new library run:
 
 ```shell
-npx nx g @nx/expo:lib your-lib-name
+npx nx g @nx/expo:lib libs/your-lib-name
 ```
 
 ### Generating Components
@@ -112,7 +115,7 @@ npx nx g @nx/expo:lib your-lib-name
 To generate a new component inside library run:
 
 ```shell
-npx nx g @nx/expo:component your-component-name --project=your-lib-name --export
+npx nx g @nx/expo:component libs/your-lib-name/src/your-component-name --export
 ```
 
 Replace `your-lib-name` with the app's name as defined in your `tsconfig.base.json` file or the `name` property of your `package.json`

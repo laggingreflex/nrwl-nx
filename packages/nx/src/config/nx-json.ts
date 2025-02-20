@@ -2,14 +2,15 @@ import { existsSync } from 'fs';
 import { dirname, join } from 'path';
 
 import type { ChangelogRenderOptions } from '../../release/changelog-renderer';
-import { readJsonFile } from '../utils/fileutils';
-import { PackageManager } from '../utils/package-manager';
-import { workspaceRoot } from '../utils/workspace-root';
-import {
+import type { PackageManager } from '../utils/package-manager';
+import type {
   InputDefinition,
   TargetConfiguration,
   TargetDependencyConfig,
 } from './workspace-json-project-json';
+
+import { readJsonFile } from '../utils/fileutils';
+import { workspaceRoot } from '../utils/workspace-root';
 
 export type ImplicitDependencyEntry<T = '*' | string[]> = {
   [key: string]: T | ImplicitJsonSubsetDependency<T>;
@@ -19,6 +20,9 @@ export interface ImplicitJsonSubsetDependency<T = '*' | string[]> {
   [key: string]: T | ImplicitJsonSubsetDependency<T>;
 }
 
+/**
+ * @deprecated Use {@link NxJsonConfiguration#defaultBase } instead
+ */
 export interface NxAffectedConfig {
   /**
    * Default based branch used by affected commands.
@@ -37,6 +41,7 @@ export interface NrwlJsPluginConfig {
   analyzeSourceFiles?: boolean;
   analyzePackageJson?: boolean;
   analyzeLockfile?: boolean;
+  projectsAffectedByDependencyUpdates?: 'all' | 'auto' | string[];
 }
 
 interface NxInstallationConfiguration {
@@ -75,7 +80,17 @@ export interface NxReleaseChangelogConfiguration {
    * NOTE: if createRelease is set on a group of projects, it will cause the default releaseTagPattern of
    * "{projectName}@{version}" to be used for those projects, even when versioning everything together.
    */
-  createRelease?: 'github' | false;
+  createRelease?:
+    | false
+    | 'github'
+    | {
+        provider: 'github-enterprise-server';
+        hostname: string;
+        /**
+         * If not set, this will default to `https://${hostname}/api/v3`
+         */
+        apiBaseUrl?: string;
+      };
   /**
    * This can either be set to a string value that will be written to the changelog file(s)
    * at the workspace root and/or within project directories, or set to `false` to specify
@@ -119,9 +134,9 @@ export interface NxReleaseGitConfiguration {
    */
   commitMessage?: string;
   /**
-   * Additional arguments (added after the --message argument, which may or may not be customized with --git-commit-message) to pass to the `git commit` command invoked behind the scenes
+   * Additional arguments (added after the --message argument, which may or may not be customized with --git-commit-message) to pass to the `git commit` command invoked behind the scenes. May be a string or array of strings.
    */
-  commitArgs?: string;
+  commitArgs?: string | string[];
   /**
    * Whether or not to stage the changes made by this command. Always treated as true if commit is true.
    */
@@ -135,12 +150,54 @@ export interface NxReleaseGitConfiguration {
    */
   tagMessage?: string;
   /**
-   * Additional arguments to pass to the `git tag` command invoked behind the scenes
+   * Additional arguments to pass to the `git tag` command invoked behind the scenes. May be a string or array of strings.
    */
-  tagArgs?: string;
+  tagArgs?: string | string[];
+  /**
+   * Whether or not to automatically push the changes made by this command to the remote git repository.
+   */
+  push?: boolean;
 }
 
-interface NxReleaseConfiguration {
+export interface NxReleaseConventionalCommitsConfiguration {
+  types?: Record<
+    string,
+    /**
+     * A map of commit types to their configuration.
+     * If a type is set to 'true', then it will be enabled with the default 'semverBump' of 'patch' and will appear in the changelog.
+     * If a type is set to 'false', then it will not trigger a version bump and will be hidden from the changelog.
+     */
+    | {
+        /**
+         * The semver bump to apply when a commit of this type is found.
+         * If set to "none", the commit will be ignored for versioning purposes.
+         */
+        semverBump?: 'patch' | 'minor' | 'major' | 'none';
+        /**
+         * Configuration for the changelog section for commits of this type.
+         * If set to 'true', then commits of this type will be included in the changelog with their default title for the type.
+         * If set to 'false', then commits of this type will not be included in the changelog.
+         */
+        changelog?:
+          | {
+              title?: string;
+              hidden?: boolean;
+            }
+          | boolean;
+      }
+    | boolean
+  >;
+}
+
+export interface NxReleaseVersionPlansConfiguration {
+  /**
+   * Changes to files matching any of these optional patterns will be excluded from the affected project logic within the `nx release plan:check`
+   * command. This is useful for ignoring files that are not relevant to the versioning process, such as documentation or configuration files.
+   */
+  ignorePatternsForPlanCheck?: string[];
+}
+
+export interface NxReleaseConfiguration {
   /**
    * Shorthand for amending the projects which will be included in the implicit default release group (all projects by default).
    * @note Only one of `projects` or `groups` can be specified, the cannot be used together.
@@ -168,7 +225,15 @@ interface NxReleaseConfiguration {
        *
        * NOTE: git configuration is not supported at the group level, only the root/command level
        */
-      version?: NxReleaseVersionConfiguration;
+      version?: NxReleaseVersionConfiguration & {
+        /**
+         * A command to run after validation of nx release configuration, but before versioning begins.
+         * Used for preparing build artifacts. If --dry-run is passed, the command is still executed, but
+         * with the NX_DRY_RUN environment variable set to 'true'.
+         * It will run in addition to the global `preVersionCommand`
+         */
+        groupPreVersionCommand?: string;
+      };
       /**
        * Project changelogs are disabled by default.
        *
@@ -185,6 +250,20 @@ interface NxReleaseConfiguration {
        * Optionally override the git/release tag pattern to use for this group.
        */
       releaseTagPattern?: string;
+      /**
+       * By default, we will try and resolve the latest match for the releaseTagPattern from the current branch,
+       * falling back to all branches if no match is found on the current branch.
+       *
+       * - Setting this to true will cause us to ALWAYS check all branches for the latest match.
+       * - Setting it to false will cause us to ONLY check the current branch for the latest match.
+       * - Setting it to an array of strings will cause us to check all branches WHEN the current branch matches one of the strings in the array. Glob patterns are supported.
+       */
+      releaseTagPatternCheckAllBranchesWhen?: boolean | string[];
+      /**
+       * Enables using version plans as a specifier source for versioning and
+       * to determine changes for changelog generation.
+       */
+      versionPlans?: NxReleaseVersionPlansConfiguration | boolean;
     }
   >;
   /**
@@ -229,6 +308,12 @@ interface NxReleaseConfiguration {
      * Enable or override configuration for git operations as part of the version subcommand
      */
     git?: NxReleaseGitConfiguration;
+    /**
+     * A command to run after validation of nx release configuration, but before versioning begins.
+     * Used for preparing build artifacts. If --dry-run is passed, the command is still executed, but
+     * with the NX_DRY_RUN environment variable set to 'true'.
+     */
+    preVersionCommand?: string;
   };
   /**
    * Optionally override the git/release tag pattern to use. This field is the source of truth
@@ -242,9 +327,51 @@ interface NxReleaseConfiguration {
    */
   releaseTagPattern?: string;
   /**
+   * By default, we will try and resolve the latest match for the releaseTagPattern from the current branch,
+   * falling back to all branches if no match is found on the current branch.
+   *
+   * - Setting this to true will cause us to ALWAYS check all branches for the latest match.
+   * - Setting it to false will cause us to ONLY check the current branch for the latest match.
+   * - Setting it to an array of strings will cause us to check all branches WHEN the current branch matches one of the strings in the array. Glob patterns are supported.
+   */
+  releaseTagPatternCheckAllBranchesWhen?: boolean | string[];
+  /**
    * Enable and configure automatic git operations as part of the release
    */
   git?: NxReleaseGitConfiguration;
+  conventionalCommits?: NxReleaseConventionalCommitsConfiguration;
+  /**
+   * Enables using version plans as a specifier source for versioning and
+   * to determine changes for changelog generation.
+   */
+  versionPlans?: NxReleaseVersionPlansConfiguration | boolean;
+}
+
+export interface NxSyncConfiguration {
+  /**
+   * List of workspace-wide sync generators to be run (not attached to targets).
+   */
+  globalGenerators?: string[];
+
+  /**
+   * Options for the sync generators.
+   */
+  generatorOptions?: {
+    [generatorName: string]: Record<string, unknown>;
+  };
+
+  /**
+   * Whether to automatically apply sync generator changes when running tasks.
+   * If not set, the user will be prompted in interactive mode.
+   * If set to `true`, the user will not be prompted and the changes will be applied.
+   * If set to `false`, the user will not be prompted and the changes will not be applied.
+   */
+  applyChanges?: boolean;
+
+  /**
+   * List of registered task sync generators to disable.
+   */
+  disabledTaskSyncGenerators?: string[];
 }
 
 /**
@@ -253,6 +380,7 @@ interface NxReleaseConfiguration {
  * @note: when adding properties here add them to `allowedWorkspaceExtensions` in adapter/compat.ts
  */
 export interface NxJsonConfiguration<T = '*' | string[]> {
+  $schema?: string;
   /**
    * Optional (additional) Nx.json configuration file which becomes a base for this one
    */
@@ -272,8 +400,15 @@ export interface NxJsonConfiguration<T = '*' | string[]> {
   targetDefaults?: TargetDefaults;
   /**
    * Default options for `nx affected`
+   * @deprecated use {@link defaultBase} instead. For more information see https://nx.dev/deprecated/affected-config#affected-config
    */
   affected?: NxAffectedConfig;
+
+  /**
+   * Default value for --base used by `nx affected` and `nx format`.
+   */
+  defaultBase?: string;
+
   /**
    * Where new apps + libs should be placed
    */
@@ -282,7 +417,8 @@ export interface NxJsonConfiguration<T = '*' | string[]> {
     appsDir?: string;
   };
   /**
-   * Available Task Runners
+   * @deprecated Custom task runners will be replaced by a new API starting with Nx 21. More info: https://nx.dev/deprecated/custom-tasks-runner
+   * Available Task Runners for Nx to use
    */
   tasksRunnerOptions?: {
     [tasksRunnerName: string]: {
@@ -358,6 +494,12 @@ export interface NxJsonConfiguration<T = '*' | string[]> {
   nxCloudAccessToken?: string;
 
   /**
+   * If specified Nx will use nx-cloud by default with the given cloud id.
+   * To use a different runner that accepts a cloud id, define it in {@link tasksRunnerOptions}
+   */
+  nxCloudId?: string;
+
+  /**
    * Specifies the url pointing to an instance of nx cloud. Used for remote
    * caching and displaying run links.
    */
@@ -382,11 +524,36 @@ export interface NxJsonConfiguration<T = '*' | string[]> {
    * Set this to false to disable the daemon.
    */
   useDaemonProcess?: boolean;
+
+  /**
+   * Set this to false to disable adding inference plugins when generating new projects
+   */
+  useInferencePlugins?: boolean;
+
+  /**
+   * Set this to true to disable connection to Nx Cloud
+   */
+  neverConnectToCloud?: boolean;
+
+  /**
+   * Configuration for the `nx sync` command.
+   */
+  sync?: NxSyncConfiguration;
+
+  /**
+   * Use the legacy file system cache instead of the db cache
+   */
+  useLegacyCache?: boolean;
 }
 
-export type PluginConfiguration =
-  | string
-  | { plugin: string; options?: unknown };
+export type PluginConfiguration = string | ExpandedPluginConfiguration;
+
+export type ExpandedPluginConfiguration<T = unknown> = {
+  plugin: string;
+  options?: T;
+  include?: string[];
+  exclude?: string[];
+};
 
 export function readNxJson(root: string = workspaceRoot): NxJsonConfiguration {
   const nxJson = join(root, 'nx.json');

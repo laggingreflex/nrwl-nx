@@ -1,29 +1,30 @@
-import type {
+import {
+  createProjectGraphAsync,
+  formatFiles,
   GeneratorCallback,
   NxJsonConfiguration,
-  ProjectConfiguration,
-  Tree,
-} from '@nx/devkit';
-import {
-  formatFiles,
   offsetFromRoot,
+  ProjectConfiguration,
+  ProjectGraph,
   readJson,
+  readNxJson,
   readProjectConfiguration,
   runTasksInSerial,
+  Tree,
   updateJson,
   updateProjectConfiguration,
   writeJson,
 } from '@nx/devkit';
 
-import { Linter as LinterEnum } from '../utils/linter';
-import { findEslintFile } from '../utils/eslint-file';
-import { join } from 'path';
+import { Linter as LinterEnum, LinterType } from '../utils/linter';
+import {
+  determineEslintConfigFormat,
+  findEslintFile,
+} from '../utils/eslint-file';
+import { extname, join } from 'path';
 import { lintInitGenerator } from '../init/init';
 import type { Linter } from 'eslint';
-import {
-  findLintTarget,
-  migrateConfigToMonorepoStyle,
-} from '../init/init-migration';
+import { migrateConfigToMonorepoStyle } from '../init/init-migration';
 import { getProjects } from 'nx/src/generators/utils/project-configuration';
 import { useFlatConfig } from '../../utils/flat-config';
 import {
@@ -34,15 +35,15 @@ import {
 } from '../utils/flat-config/ast-utils';
 import {
   baseEsLintConfigFile,
-  baseEsLintFlatConfigFile,
-  ESLINT_CONFIG_FILENAMES,
+  BASE_ESLINT_CONFIG_FILENAMES,
 } from '../../utils/config-file';
 import { hasEslintPlugin } from '../utils/plugin';
 import { setupRootEsLint } from './setup-root-eslint';
+import { getProjectType } from '@nx/js/src/utils/typescript/ts-solution-setup';
 
 interface LintProjectOptions {
   project: string;
-  linter?: LinterEnum;
+  linter?: LinterEnum | LinterType;
   eslintFilePatterns?: string[];
   tsConfigPaths?: string[];
   skipFormat: boolean;
@@ -52,11 +53,13 @@ interface LintProjectOptions {
   rootProject?: boolean;
   keepExistingVersions?: boolean;
   addPlugin?: boolean;
+  eslintConfigFormat?: 'mjs' | 'cjs';
 
   /**
    * @internal
    */
   addExplicitTargets?: boolean;
+  addPackageJsonDependencyChecks?: boolean;
 }
 
 export function lintProjectGenerator(tree: Tree, options: LintProjectOptions) {
@@ -67,17 +70,24 @@ export async function lintProjectGeneratorInternal(
   tree: Tree,
   options: LintProjectOptions
 ) {
-  options.addPlugin ??= process.env.NX_ADD_PLUGINS !== 'false';
+  const nxJson = readNxJson(tree);
+  options.eslintConfigFormat ??= 'mjs';
+  const addPluginDefault =
+    process.env.NX_ADD_PLUGINS !== 'false' &&
+    nxJson.useInferencePlugins !== false;
+  options.addPlugin ??= addPluginDefault;
   const tasks: GeneratorCallback[] = [];
   const initTask = await lintInitGenerator(tree, {
     skipPackageJson: options.skipPackageJson,
     addPlugin: options.addPlugin,
+    eslintConfigFormat: options.eslintConfigFormat,
   });
   tasks.push(initTask);
   const rootEsLintTask = setupRootEsLint(tree, {
     unitTestRunner: options.unitTestRunner,
     skipPackageJson: options.skipPackageJson,
     rootProject: options.rootProject,
+    eslintConfigFormat: options.eslintConfigFormat,
   });
   tasks.push(rootEsLintTask);
   const projectConfig = readProjectConfiguration(tree, options.project);
@@ -90,7 +100,7 @@ export async function lintProjectGeneratorInternal(
     lintFilePatterns &&
     lintFilePatterns.length &&
     !lintFilePatterns.includes('{projectRoot}') &&
-    isBuildableLibraryProject(projectConfig)
+    isBuildableLibraryProject(tree, projectConfig)
   ) {
     lintFilePatterns.push(`{projectRoot}/package.json`);
   }
@@ -104,6 +114,7 @@ export async function lintProjectGeneratorInternal(
         (p) => !['./src', '{projectRoot}', projectConfig.root].includes(p)
       )
     ) {
+      projectConfig.targets ??= {};
       projectConfig.targets['lint'] = {
         command: `eslint ${lintFilePatterns
           .join(' ')
@@ -111,6 +122,7 @@ export async function lintProjectGeneratorInternal(
       };
     }
   } else {
+    projectConfig.targets ??= {};
     projectConfig.targets['lint'] = {
       executor: '@nx/eslint:lint',
     };
@@ -129,7 +141,8 @@ export async function lintProjectGeneratorInternal(
   if (!options.rootProject) {
     const projects = {} as any;
     getProjects(tree).forEach((v, k) => (projects[k] = v));
-    if (isMigrationToMonorepoNeeded(projects, tree)) {
+    const graph = await createProjectGraphAsync();
+    if (isMigrationToMonorepoNeeded(tree, graph)) {
       // we only migrate project configurations that have been created
       const filteredProjects = [];
       Object.entries(projects).forEach(([name, project]) => {
@@ -137,12 +150,14 @@ export async function lintProjectGeneratorInternal(
           filteredProjects.push(project);
         }
       });
-      migrateConfigToMonorepoStyle(
+      const migrateTask = migrateConfigToMonorepoStyle(
         filteredProjects,
         tree,
         options.unitTestRunner,
+        options.eslintConfigFormat,
         options.keepExistingVersions
       );
+      tasks.push(migrateTask);
     }
   }
 
@@ -152,6 +167,7 @@ export async function lintProjectGeneratorInternal(
   if (!options.rootProject || projectConfig.root !== '.') {
     createEsLintConfiguration(
       tree,
+      options,
       projectConfig,
       options.setParserOptionsProject,
       options.rootProject
@@ -160,7 +176,7 @@ export async function lintProjectGeneratorInternal(
 
   // Buildable libs need source analysis enabled for linting `package.json`.
   if (
-    isBuildableLibraryProject(projectConfig) &&
+    isBuildableLibraryProject(tree, projectConfig) &&
     !isJsAnalyzeSourceFilesEnabled(tree)
   ) {
     updateJson(tree, 'nx.json', (json) => {
@@ -182,6 +198,7 @@ export async function lintProjectGeneratorInternal(
 
 function createEsLintConfiguration(
   tree: Tree,
+  options: LintProjectOptions,
   projectConfig: ProjectConfiguration,
   setParserOptionsProject: boolean,
   rootProject: boolean
@@ -191,57 +208,85 @@ function createEsLintConfiguration(
   const pathToRootConfig = extendedRootConfig
     ? `${offsetFromRoot(projectConfig.root)}${extendedRootConfig}`
     : undefined;
-  const addDependencyChecks = isBuildableLibraryProject(projectConfig);
 
-  const overrides: Linter.ConfigOverride<Linter.RulesRecord>[] = [
-    {
-      files: ['*.ts', '*.tsx', '*.js', '*.jsx'],
-      /**
-       * NOTE: We no longer set parserOptions.project by default when creating new projects.
-       *
-       * We have observed that users rarely add rules requiring type-checking to their Nx workspaces, and therefore
-       * do not actually need the capabilites which parserOptions.project provides. When specifying parserOptions.project,
-       * typescript-eslint needs to create full TypeScript Programs for you. When omitting it, it can perform a simple
-       * parse (and AST tranformation) of the source files it encounters during a lint run, which is much faster and much
-       * less memory intensive.
-       *
-       * In the rare case that users attempt to add rules requiring type-checking to their setup later on (and haven't set
-       * parserOptions.project), the executor will attempt to look for the particular error typescript-eslint gives you
-       * and provide feedback to the user.
-       */
-      parserOptions: !setParserOptionsProject
-        ? undefined
-        : {
-            project: [`${projectConfig.root}/tsconfig.*?.json`],
-          },
-      /**
-       * Having an empty rules object present makes it more obvious to the user where they would
-       * extend things from if they needed to
-       */
-      rules: {},
-    },
-    {
-      files: ['*.ts', '*.tsx'],
-      rules: {},
-    },
-    {
-      files: ['*.js', '*.jsx'],
-      rules: {},
-    },
-  ];
+  if (extendedRootConfig) {
+    // We do not want to mix the formats
+    // if the base file extension is `.mjs` we should use `mjs` for the new file
+    // or if base the file extension is `.cjs` then the format should be `cjs`
 
-  if (isBuildableLibraryProject(projectConfig)) {
+    const fileExtension = extname(extendedRootConfig);
+    if (fileExtension === '.mjs' || fileExtension === '.cjs') {
+      options.eslintConfigFormat = fileExtension.slice(1) as 'mjs' | 'cjs';
+    } else {
+      options.eslintConfigFormat = determineEslintConfigFormat(
+        tree.read(extendedRootConfig, 'utf-8')
+      );
+    }
+  }
+
+  const addDependencyChecks =
+    options.addPackageJsonDependencyChecks ||
+    isBuildableLibraryProject(tree, projectConfig);
+
+  const overrides: Linter.ConfigOverride<Linter.RulesRecord>[] = useFlatConfig(
+    tree
+  )
+    ? // For flat configs, we don't need to generate different overrides for each file. Users should add their own overrides as needed.
+      []
+    : [
+        {
+          files: ['*.ts', '*.tsx', '*.js', '*.jsx'],
+          /**
+           * NOTE: We no longer set parserOptions.project by default when creating new projects.
+           *
+           * We have observed that users rarely add rules requiring type-checking to their Nx workspaces, and therefore
+           * do not actually need the capabilites which parserOptions.project provides. When specifying parserOptions.project,
+           * typescript-eslint needs to create full TypeScript Programs for you. When omitting it, it can perform a simple
+           * parse (and AST tranformation) of the source files it encounters during a lint run, which is much faster and much
+           * less memory intensive.
+           *
+           * In the rare case that users attempt to add rules requiring type-checking to their setup later on (and haven't set
+           * parserOptions.project), the executor will attempt to look for the particular error typescript-eslint gives you
+           * and provide feedback to the user.
+           */
+          parserOptions: !setParserOptionsProject
+            ? undefined
+            : {
+                project: [`${projectConfig.root}/tsconfig.*?.json`],
+              },
+          /**
+           * Having an empty rules object present makes it more obvious to the user where they would
+           * extend things from if they needed to
+           */
+          rules: {},
+        },
+        {
+          files: ['*.ts', '*.tsx'],
+          rules: {},
+        },
+        {
+          files: ['*.js', '*.jsx'],
+          rules: {},
+        },
+      ];
+
+  if (addDependencyChecks) {
     overrides.push({
       files: ['*.json'],
       parser: 'jsonc-eslint-parser',
       rules: {
-        '@nx/dependency-checks': 'error',
+        '@nx/dependency-checks': [
+          'error',
+          {
+            // With flat configs, we don't want to include imports in the eslint js/cjs/mjs files to be checked
+            ignoredFiles: ['{projectRoot}/eslint.config.{js,cjs,mjs}'],
+          },
+        ],
       },
     });
   }
 
   if (useFlatConfig(tree)) {
-    const isCompatNeeded = addDependencyChecks;
     const nodes = [];
     const importMap = new Map();
     if (extendedRootConfig) {
@@ -249,11 +294,18 @@ function createEsLintConfiguration(
       nodes.push(generateSpreadElement('baseConfig'));
     }
     overrides.forEach((override) => {
-      nodes.push(generateFlatOverride(override));
+      nodes.push(generateFlatOverride(override, options.eslintConfigFormat));
     });
-    const nodeList = createNodeList(importMap, nodes, isCompatNeeded);
+    const nodeList = createNodeList(
+      importMap,
+      nodes,
+      options.eslintConfigFormat
+    );
     const content = stringifyNodeList(nodeList);
-    tree.write(join(projectConfig.root, 'eslint.config.js'), content);
+    tree.write(
+      join(projectConfig.root, `eslint.config.${options.eslintConfigFormat}`),
+      content
+    );
   } else {
     writeJson(tree, join(projectConfig.root, `.eslintrc.json`), {
       extends: extendedRootConfig ? [pathToRootConfig] : undefined,
@@ -277,10 +329,12 @@ function isJsAnalyzeSourceFilesEnabled(tree: Tree): boolean {
 }
 
 function isBuildableLibraryProject(
+  tree: Tree,
   projectConfig: ProjectConfiguration
 ): boolean {
   return (
-    projectConfig.projectType === 'library' &&
+    getProjectType(tree, projectConfig.root, projectConfig.projectType) ===
+      'library' &&
     projectConfig.targets?.build &&
     !!projectConfig.targets.build
   );
@@ -290,37 +344,36 @@ function isBuildableLibraryProject(
  * Detect based on the state of lint target configuration of the root project
  * if we should migrate eslint configs to monorepo style
  */
-function isMigrationToMonorepoNeeded(
-  projects: Record<string, ProjectConfiguration>,
-  tree: Tree
-): boolean {
+function isMigrationToMonorepoNeeded(tree: Tree, graph: ProjectGraph): boolean {
   // the base config is already created, migration has been done
   if (
-    tree.exists(baseEsLintConfigFile) ||
-    tree.exists(baseEsLintFlatConfigFile)
+    [baseEsLintConfigFile, ...BASE_ESLINT_CONFIG_FILENAMES].some((f) =>
+      tree.exists(f)
+    )
   ) {
     return false;
   }
 
-  const configs = Object.values(projects);
-  if (configs.length === 1) {
+  const nodes = Object.values(graph.nodes);
+
+  // get root project
+  const rootProject = nodes.find((p) => p.data.root === '.');
+  if (!rootProject || !rootProject.data.targets) {
     return false;
   }
 
-  // get root project
-  const rootProject = configs.find((p) => p.root === '.');
-  if (!rootProject || !rootProject.targets) {
-    return false;
-  }
-  // check if we're inferring lint target from `@nx/eslint/plugin`
-  if (hasEslintPlugin(tree)) {
-    for (const f of ESLINT_CONFIG_FILENAMES) {
-      if (tree.exists(f)) {
-        return true;
-      }
+  for (const targetConfig of Object.values(rootProject.data.targets ?? {})) {
+    if (
+      ['@nx/eslint:lint', '@nx/linter:eslint'].includes(
+        targetConfig.executor
+      ) ||
+      (targetConfig.executor === 'nx:run-commands' &&
+        targetConfig.options?.command &&
+        targetConfig.options?.command.startsWith('eslint '))
+    ) {
+      return true;
     }
   }
-  // find if root project has lint target
-  const lintTarget = findLintTarget(rootProject);
-  return !!lintTarget;
+
+  return false;
 }

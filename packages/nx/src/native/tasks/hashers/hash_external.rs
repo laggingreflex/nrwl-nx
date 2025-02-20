@@ -37,8 +37,8 @@ pub fn hash_all_externals<S: AsRef<str>>(
 ) -> Result<String> {
     let hashes = sorted_externals
         .iter()
-        .map(|name| hash_external(name.as_ref(), externals, Arc::clone(&cache)))
-        .collect::<Result<Vec<_>>>()?;
+        .map(|name| hash_external(name.as_ref(), externals, Arc::clone(&cache)).map(Some))
+        .collect::<Result<Vec<Option<String>>>>()?;
     Ok(hash_array(hashes))
 }
 
@@ -54,6 +54,7 @@ mod test {
             (
                 "my_external".to_string(),
                 ExternalNode {
+                    package_name: Some("my_external".into()),
                     version: "0.0.1".into(),
                     hash: None,
                 },
@@ -61,6 +62,7 @@ mod test {
             (
                 "my_external_with_hash".to_string(),
                 ExternalNode {
+                    package_name: Some("my_external_with_hash".into()),
                     version: "0.0.1".into(),
                     hash: Some("hashvalue".into()),
                 },

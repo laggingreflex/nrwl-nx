@@ -1,5 +1,289 @@
 # Enterprise Release Notes
 
+### 2025.01.1
+
+- Fix: adds data migrations for older organizations
+
+### 2025.01
+
+##### Affected project graph
+
+The affected project graph for pull requests has now made it to the on-prem release! Read the full announcement [here](/blog/ci-affected-graph).
+
+##### DTE improvements
+
+- There have been a lot of performance improvements to the DTE algorithm and how tasks get sorted to ensure optimal distribution
+- Improved early agent shutdown: we now look at more parameters to decide whether we can shutdown a DTE agent earlier
+- Project graph integrity checks
+  - both the main job and the agents require the exact same project graph for the DTE algorithm to run correctly
+  - differences can appear, for example, if the agents or main job restore an older cached version of the project graph (instead of re-calculating the current one)
+  - it can also happen if the main job and agents run off of different commits (maybe your main CI job does a `git merge` with `main` and your agents do not)
+  - we now explicitly check if the agents and main job run on the same exact commit hash and also if they use the same project graph: otherwise we fail the DTE early
+- `stop-agents-after` now supports target configs
+  - if you are running two affected commands at different points in your main job, each triggering the same target but under different configurations
+    - `nx affected -t build:config1`
+    - `nx affected -t build:config2`
+  - you can configure agents to wait for both of them to complete before ending the DTE
+    - `--stop-agents-after=build:config1,build:config2,lint,test`
+
+##### Nx Agents improvements
+
+Previously, if an agent ran out of memory or crashed in the middle of its run, the logs would be lost.
+Now, we have a dedicated long-running "log uploader" that can upload logs even if the main agent container crashed.
+To enable, you will need to configure the following env var on your workflow controller:
+
+```yaml
+- name: LOG_UPLOADER_IMAGE
+  value: 'us-east1-docker.pkg.dev/nxcloudoperations/nx-cloud/nx-cloud-workflow-log-uploader'
+```
+
+We now also make much fewer requests to GitHub (or your other VCS providers) during a CIPE start, so you should see improved Nx Agents startup times.
+
+##### PR comments look refresh
+
+The PR comment containing status updates about your CI execution has had make-over, showing a more clear breakdown of your runs, their duration and the status:
+
+![new PR comment](/nx-cloud/reference/images/new_github_comment.png)
+
+##### Misc Items
+
+- while we do our best to infer your commit message to display on the CIPE page, if it ever doesn't look right, you can manually override in your CI pipeline by setting `NX_CLOUD_COMMIT_MESSAGE`
+- improved workspace analytics controls
+- we now print more information on the main CI job summary table, such as a direct link to the associated CIPE
+- there is now a workspace level setting enabling or disabling flaky task retrying
+
+### 2024.10.3
+
+- Feat: Support NO_PROXY env var on pods
+
+### 2024.10.2
+
+- Fix: AWS S3 bucket connections when using STS role-based authentication
+
+### 2024.10.1
+
+- Fix: GitHub and external bucket connection issues when using a proxy
+
+### 2024.10
+
+This is a big release so let's go through the highlights first. There is also an important "Breaking changes" section at the end.
+
+##### New Version Structure
+
+We have changed our version structure to a more simplified tag: `YEAR.MM.PATCH_NUMBER`
+The goal is to make it easier to spot how old/recent your existing NxCloud version is and compare it against newer deployments.
+
+##### DTE Summary Table on Main Agent
+
+When distributing with DTE, up until now, we have been replaying all your tasks logs "as they come in" from the DTE agents back onto your main job.
+
+This is not that useful on big workspaces, with large task affected task graphs as it can be hard to follow all the outputs from all the agents streaming back concurrently.
+
+This release contains the new "CI Table Log View" summary, and you can read all about it [here](/blog/improved-ci-log-with-nx-cloud).
+
+If you prefer the old logs style, you can always disable the feature via your workspace's settings screen.
+
+##### Personal Access Tokens
+
+Up until now, for developers to get access to read (and maybe write) to the cache you always needed an access token to be made available locally: either
+committed to the repo via `nx.json` or made available as an env variable via a `.local.env` file.
+
+This flow was secure enough as is, even if you never rotated your access tokens, as someone would still need continuous hourly access to your source code if they wanted to retrieve any of the latest cached artifacts.
+
+But given you already manage developer access to your NxCloud workspace via the web app, we wanted to tie local cache access to that mechanism as well.
+
+This release contains the new ["Personal Access Tokens"](/blog/personal-access-tokens) feature that now asks developers to login locally before they can use the cache.
+If they are a member of the workspace, they get a local token stored on their machine that will be used to access the cache.
+The moment they get removed as a member from your workspace, they won't be able to read from the cache anymore.
+
+Please read the full announcement post here, as it contains details on how to migrate your team to using [Personal Access Tokens](/blog/personal-access-tokens).
+
+##### GitHub App Integration
+
+If you are using GitHub, setting up a custom GitHub app for your org is the best way to take advantage of all the latest "GitHub-specific" features we offer.
+Please see instructions [here](/ci/recipes/enterprise/single-tenant/custom-github-app) on setting up an app.
+You will then need to make sure you set up your VCS integration again through your workspace's settings screen, and use the above app you created.
+
+As part of this, you will also get the "GitHub membership management" feature, where everybody who is a collaborator of your GitHub repo will also get "read" access to your NxCloud workspace,
+without you having to explicitly invite them.
+
+##### Misc Items
+
+- Improved docker agents support
+  - We fixed a few issues related to running docker builds in Nx Agents
+- Big DTE performance improvements
+- Azure file storage for Nx Agents
+- Auth session length has been extended to 7 days by default
+  - Use NX_CLOUD_SESSION_MAX_AGE to configure this to a different value
+- Various SAML fixes and improvements
+  - One highlight is that users can now login from Okta directly (while before they had to initiate login through NxCloud web app)
+
+##### Breaking Changes
+
+Most workspaces will not be affected by this, but if you have these values configured in your `helm-config.yaml`:
+
+- `github.pr.[...]`
+- or `gitlab.mr.[...]`
+
+they will stop working with this release (see [this](https://github.com/nrwl/nx-cloud-helm/pull/141/files) for details on what was removed).
+Please go to your workspace settings and you should be able to configure all the above values when you setup a VCS integration.
+
+_Terminal outputs_ in the web app will now be fully served from storage bucket (either S3/Gcloud/Azure, or your internal file-server). This means your NxCloud cluster needs to have an open/healthy connection to the bucket. You can test this by ssh'ing into the `nx-cloud-frontend` pod and trying to `wget` one of your bucket artefacts. Any proxy or firewall constraints will need to be handled. Additionally, if your bucket is hosted at a self-signed https URL, any fetch calls from the frontend pod to your bucket will fail. If you think any of this applies to you, please contact your DPE to discuss options.
+
+### 2406.29.1.patch1
+
+- Fix an issue with specifying custom AWS credentials in Minio instances
+- Fix an issue with removing pending invites
+
+### 2406.29.1
+
+##### Full terminal outputs in the web app
+
+Due to storage constraints in Mongo, long terminal outputs were sometimes truncated when viewed in the UI. With this update we are now loading all terminal outputs directly
+from the storage bucket, removing the need to keep them in Mongo. You should now be able to view full, complete logs in the UI regardless of how large the output is.
+
+##### OpenShift fixes for Agents
+
+- the latest messagequeue image is now OpenShift ready
+  - to use, just update to the latest Helm version `0.15.6` and make sure you are not passing in an explicit tag for the messagequeue
+  - then use version `2406.29.1` for NxCloud. This should use the latest, OpenShift enabled messagequeue image
+- when running Agents on OpenShift, they run as a specific user with ID 1000
+  - to override this, make sure to set `NX_CLOUD_RUN_UNIX_PODS_AS_USER: <userId>` and `NX_CLOUD_RUN_UNIX_PODS_AS_GROUP: <groupId>` on the [workflow controller env vars](https://github.com/nrwl/nx-cloud-helm/blob/main/charts/nx-agents/values.yaml#L63)
+
+##### Full Bitbucket Data Center (on-prem)
+
+We now have full support for BitBucket Data Center (self-hosted):
+
+- VCS integration for posting comments with live updates about your CI runs
+- full agents integration
+- more info about each one of your commits on the NxCloud web app
+- you can even [set-up auth with BitBucket Data Center](/ci/recipes/enterprise/single-tenant/auth-bitbucket-data-center#bitbucket-data-center-auth)
+
+##### Misc
+
+- easier workspace setup experience for new customers
+- the CIPE visualisation has been updated (elapsed task time)
+- general web app performance improvements
+
+##### Breaking changes
+
+If you are using DTE, you will now need to pass the `--distribute-on="manual"` flag to your `npx nx-cloud start-ci-run` commands.
+
+### 2405.02.15
+
+##### Easy membership management via GitHub
+
+A few months ago, we introduced a new feature to our managed SASS NxCloud product: easy membership management via GitHub. If you create a new workspace on [https://cloud.nx.app/](https://cloud.nx.app/) right now you will be guided through how to connect it to your GitHub repository. Now everyone that has access to your GitHub repository will also get access to your NxCloud workspace. If anyone loses access to GitHub (maybe they leave the company), they will also lose access to NxCloud. This makes membership management easy and straightforward, as you don't have to manually invite users anymore. Of course, setting up this connection also gives you NxCloud run status updates directly on your PRs - a feature we've had for a long time.
+
+This feature has now been release for on-prem set-ups as well. To benefit from it, you'll need to create your own Github App with permissions to access your repository. Your on-prem NxCloud instance will then use this app to pull membership info from Github and check user permissions. You can find [the full setup instructions here](/ci/recipes/enterprise/single-tenant/custom-github-app).
+
+##### DTE v2 enabled by default
+
+After testing the improved task distribution algorithm (DTE v2) for the past few months, we are now enabling it by default for all customers. Expect quicker CI run times when using DTE, and better utilization of your agents with less idle time.
+
+##### Nx Agents and breaking changes
+
+If you are using Nx Agents, this release will contain a breaking change to the workflow controller.
+Before upgrading to this version, you'll need to follow the new [Agents Guide](https://github.com/nrwl/nx-cloud-helm/blob/main/agents-guide/AGENTS-GUIDE.md) and deploy an instance of Valkey that your controller can connect to.
+
+The reason we need Valkey is that the workflow controller now persistently stores information about your workflows for up to 8 hours, and these changes will be persisted regardless of the availability of the workflow controller pod, making your in-progress workflows more resilient to rolling kubernetes updates, and will fix some previous issues with agent statuses not syncing to the UI.
+
+If you are not using Nx Agents, this does not affect you and you can upgrade to this version straight away.
+
+##### UI improvements
+
+- If you are using the new Crystal plugins in Nx 18, we've now added a "technologies label" to each task, so you can quickly see which tasks are Playwright based, Cypress, React etc.
+- We've added toast notifications in the app. You'll see them confirming some of your actions, such as saving workspace changes.
+
+##### Misc fixes
+
+- We've fixed various bugs around the task distribution algorithm and Nx Agents. CIPEs using distribution should feel more stable and faster.
+- We fixed a few issues relating to the GitLab and BitBucket integrations.
+
+### 2404.05.9
+
+##### DTE Algorithm V2 Experimental Flag
+
+For the past 2 months, we've been re-writing our entire task distribution algorithm. The aim was to allocate tasks more efficiently to agents,
+reduce total time spent by agents downloading artefacts and reduce idle agent time waiting for tasks.
+
+While the features is still in its beta stage, initial tests do show a big improvement in overall CI completion time
+(but this varies on a case by case basis).
+
+If you are already using DTE or Nx Agents, you can enable this experimental feature by adding the following env var to your main job (the job
+where you invoke `npx start-ci-run`):
+
+```yaml
+NX_CLOUD_DTE_V2: 'true'
+```
+
+##### Nx Agents On-Prem Availability
+
+Since the previous release, we've been testing various options for deploying Nx Agents on-premise.
+
+We now have a dedicate Helm chart dedicated to setting up an Nx Agents cluster on your infrastructure:
+
+1. ⚠️ Please reach out to your DPE first so we can start an Nx Agents trial and discuss any limitations and requirements up-front
+2. You can view the example `values.yaml` [here](https://github.com/nrwl/nx-cloud-helm/blob/main/charts/nx-agents/values.yaml)
+3. Once we had a chance to look at your existing CI compute requirements, you deploy the chart via `helm install nx-cloud nx-cloud/nx-agents --values=helm-values.yml`
+
+##### Audit logger
+
+As an Enterprise installation admin, you can now view audit logs over NxCloud workspace events by visiting `https://<NXCLOUD-URL>/audit-log`.
+
+This includes events such as when a workspace was created, when a new VCS integration was set-up and so on.
+
+##### UI improvements
+
+- Organizations can now be created directly from the "Connect a workspace" screen
+- Full screen terminal outputs for your tasks
+
+### 2402.27.3.patch3,4,5,6
+
+- Feat: allows customising the base image for the agent init-container (in case it is self-hosted internally in the company)
+- Feat: adds more logging to debug authorization errors for Github, Gitlab and SAML
+- Fix: fixes an issue with using custom launch templates on GitLab
+
+### 2402.27.3.patch3
+
+- Feat: allows disabling the automated pod watcher which doesn't behave as expected in some k8s engines
+
+### 2402.27.3.patch2
+
+- Feat: allows volume class to be customised for Agents
+
+### 2402.27.3.patch1
+
+- Fixes an issue with the aggregator creating empty organisations during the first migration
+
+### 2402.27.3
+
+With this version you can take advantage of most features announced during our recent [launch week](/launch-nx).
+
+##### Nx Agents
+
+This release contains everything needed to run [Nx Agents](/ci/features/distribute-task-execution) on-prem. While the on-prem configuration is still experimental, we are actively running Nx Agents trials at the moment, and if you'd like to take part please reach out to your DPE.
+
+If you already running DTE, there are a few advantages to upgrading to Agents:
+
+- simplified CI config: you will need to maintain just a single, main CI job config. NxCloud will create needed CI agents for you as needed.
+- [dynamic agent allocation based on PR size](/ci/features/dynamic-agents): instead of always launching all your agents NxCloud will now launch different number of agents dynamically based on your PR size
+- access to [Spot instances](https://aws.amazon.com/ec2/spot/): if you are running your clusters on any of the popular cloud providers (AWS, Google Cloud, Azure etc.), you can now use their Spot instances for running your CI job. This is possible due to NxCloud's distribution model, which allows work on a reclaimed node to be re-distributed to the remaining agents.
+
+We will shortly make available a new Helm chart that will allow you to deploy a separate Agents cluster to launch workflows: [https://github.com/nrwl/nx-cloud-helm](https://github.com/nrwl/nx-cloud-helm).
+
+![agents_screen](/nx-cloud/reference/images/agents.webp)
+
+##### Task Atomizer and task retries
+
+If you combine this release + upgrade to the latest Nx 18, you will have access to both the [task atomizer](/ci/features/split-e2e-tasks) (which allows your e2e to be distributed among agents PER FILE, instead of previously per project) and the [flaky task retry functionality](/ci/features/flaky-tasks).
+
+##### CIPE page improvements
+
+Along with all the UI changes to support agents (following their logs and track how tasks get distributed,details of which you'll find demoed on [this page](/ci/features/distribute-task-execution)) this release also brings all the new improvements to the CI pipeline execution page, including the commit info panel at the top:
+
+![cipe_top_half_screen](/nx-cloud/reference/images/cipe_top.webp)
+
 ### 2312.11.7.patch1
 
 - re-enable path style access for s3 buckets
@@ -11,11 +295,11 @@
 
 When upgrading to this version and anything above it, you will need to use Helm version 0.12.0+:
 
-| Chart Version | Compatible Images                  |
-| ------------- | ---------------------------------- |
+| Chart Version |         Compatible Images          |
+| :-----------: | :--------------------------------: |
 | <= `0.10.11`  | `2306.01.2.patch4` **and earlier** |
-| >= `0.11.0`   | `2308.22.7` **and later**          |
-| >= `0.12.0`   | `2312.11.7` **and later**          |
+|  >= `0.11.0`  |     `2308.22.7` **and later**      |
+|  >= `0.12.0`  |     `2312.11.7` **and later**      |
 
 ##### New UI features and improvements
 
@@ -64,10 +348,10 @@ To enable the light runner feature, make sure you:
 
 ##### Nx Agents
 
-This release is also the first one to support ["Nx Agents"](https://nx.dev/ci/features/nx-agents#managed-agents-seamless-configuration).
+This release is also the first one to support ["Nx Agents"](/ci/features/distribute-task-execution).
 
 While currently experimental and disabled by default for on-prem users, we are looking for more on-prem workspaces to try it out with
-so please reach out to your DPE contact or to [cloud-suppport@nrwl.io](cloud-support@nrwl.io) if you are interested in helping us shape this according to your needs!
+so please reach out to your DPE contact or to [cloud-suppport@nrwl.io](mailto:cloud-support@nrwl.io) if you are interested in helping us shape this according to your needs!
 
 ##### Breaking changes - MongoDB migration
 
@@ -114,10 +398,10 @@ product. It's faster, it handles resource caching better, and should allow the f
 
 When upgrading to this version and anything above it, you will need to use Helm version 0.11.1:
 
-| Chart Version | Compatible Images                  |
-| ------------- | ---------------------------------- |
+| Chart Version |         Compatible Images          |
+| :-----------: | :--------------------------------: |
 | <= `0.10.11`  | `2306.01.2.patch4` **and earlier** |
-| >= `0.11.0`   | `2308.22.7` **and later**          |
+|  >= `0.11.0`  |     `2308.22.7` **and later**      |
 
 ##### VCS proxy support
 
@@ -171,7 +455,7 @@ This is one of our biggest Nx Cloud On-Prem releases. It also marks a change in 
 
 A few months ago we announced a complete re-design of the Nx Cloud UI! It's faster, easier to use and pleasant to look at! We're now bringing this to On-Prem users as well:
 
-You can read more about it in our [announcement blog post](https://blog.nrwl.io/nx-cloud-3-0-faster-more-efficient-modernized-36ac5ae33b86).
+You can read more about it in our [announcement blog post](/blog/nx-cloud-3-0-faster-more-efficient-modernized).
 
 ##### Pricing updates
 
@@ -195,7 +479,7 @@ We completely re-wrote our Task Distribution engine, which should result in much
 
 We've also added a new internal task queueing system, which should further improve the performance of DTE. While this is an implementation detail which will be automatically enabled in future releases, you can test it out today by setting [`enableMessageQueue: true`](https://github.com/nrwl/nx-cloud-helm/blob/main/charts/nx-cloud/values.yaml#L18) in your Helm config.
 
-You can read more about the recent DTE improvements in our [Nx Cloud 3.0 blog post](https://blog.nrwl.io/nx-cloud-3-0-faster-more-efficient-modernized-36ac5ae33b86).
+You can read more about the recent DTE improvements in our [Nx Cloud 3.0 blog post](/blog/nx-cloud-3-0-faster-more-efficient-modernized).
 
 ##### Misc updates
 

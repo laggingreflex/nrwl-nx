@@ -30,6 +30,8 @@ const rootPackageJson = {
   dependencies: {
     external1: '~16.1.2',
     external2: '^5.2.0',
+    external3: '1.0.0',
+    external4: '1.0.0',
   },
   devDependencies: {
     tslib: '^2.1.0',
@@ -51,6 +53,22 @@ const externalNodes: Record<string, ProjectGraphExternalNode> = {
     data: {
       packageName: 'external2',
       version: '5.5.6',
+    },
+  },
+  'npm:external3': {
+    name: 'npm:external3',
+    type: 'npm',
+    data: {
+      packageName: 'external3',
+      version: '1.0.0',
+    },
+  },
+  'npm:external4': {
+    name: 'npm:external3',
+    type: 'npm',
+    data: {
+      packageName: 'external4',
+      version: '1.0.0',
     },
   },
   'npm:random-external': {
@@ -224,16 +242,6 @@ describe('Dependency checks (eslint)', () => {
         null,
         2
       ),
-      './nx.json': JSON.stringify({
-        targetDefaults: {
-          build: {
-            inputs: [
-              '{projectRoot}/**/*',
-              '!{projectRoot}/**/?(*.)+(spec|test).[jt]s?(x)?(.snap)',
-            ],
-          },
-        },
-      }),
       './package.json': JSON.stringify(rootPackageJson, null, 2),
     };
     vol.fromJSON(fileSys, '/root');
@@ -1590,68 +1598,341 @@ describe('Dependency checks (eslint)', () => {
           - external1"
     `);
   });
-});
 
-it('should require swc if @nx/js:swc executor', () => {
-  const packageJson = {
-    name: '@mycompany/liba',
-    dependencies: {
-      external1: '^16.0.0',
-    },
-  };
+  it('should not report *', () => {
+    const packageJson = {
+      name: '@mycompany/liba',
+      dependencies: {
+        external1: '*',
+      },
+    };
 
-  const swcrc = {
-    jsc: {
-      externalHelpers: true,
-    },
-  };
+    const fileSys = {
+      './libs/liba/package.json': JSON.stringify(packageJson, null, 2),
+      './libs/liba/src/index.ts': '',
+      './package.json': JSON.stringify(rootPackageJson, null, 2),
+    };
+    vol.fromJSON(fileSys, '/root');
 
-  const fileSys = {
-    './libs/liba/package.json': JSON.stringify(packageJson, null, 2),
-    './libs/liba/src/index.ts': '',
-    './libs/liba/.swcrc': JSON.stringify(swcrc, null, 2),
-    './package.json': JSON.stringify(rootPackageJson, null, 2),
-  };
-  vol.fromJSON(fileSys, '/root');
-
-  const failures = runRule(
-    {},
-    `/root/libs/liba/package.json`,
-    JSON.stringify(packageJson, null, 2),
-    {
-      nodes: {
-        liba: {
-          name: 'liba',
-          type: 'lib',
-          data: {
-            root: 'libs/liba',
-            targets: {
-              build: {
-                executor: '@nx/js:swc',
-                options: {},
+    const failures = runRule(
+      {},
+      `/root/libs/liba/package.json`,
+      JSON.stringify(packageJson, null, 2),
+      {
+        nodes: {
+          liba: {
+            name: 'liba',
+            type: 'lib',
+            data: {
+              root: 'libs/liba',
+              targets: {
+                build: {},
               },
             },
           },
         },
+        externalNodes,
+        dependencies: {
+          liba: [{ source: 'liba', target: 'npm:external1', type: 'static' }],
+        },
       },
-      externalNodes,
+      {
+        liba: [createFile(`libs/liba/src/main.ts`, ['npm:external1'])],
+      }
+    );
+    expect(failures.length).toEqual(0);
+  });
+
+  it('should not report workspace: protocol', () => {
+    const packageJson = {
+      name: '@mycompany/liba',
       dependencies: {
-        liba: [{ source: 'liba', target: 'npm:external1', type: 'static' }],
+        external1: 'workspace:~',
+        external2: 'workspace:^',
+        external3: 'workspace:',
+        external4: 'workspace:../external4',
       },
-    },
-    {
-      liba: [
-        createFile(`libs/liba/src/main.ts`, ['npm:external1']),
-        createFile(`libs/liba/package.json`, ['npm:external1']),
-      ],
-    }
-  );
-  expect(failures.length).toEqual(1);
-  expect(failures[0].message).toMatchInlineSnapshot(`
+    };
+
+    const fileSys = {
+      './libs/liba/package.json': JSON.stringify(packageJson, null, 2),
+      './libs/liba/src/index.ts': '',
+      './package.json': JSON.stringify(rootPackageJson, null, 2),
+    };
+    vol.fromJSON(fileSys, '/root');
+
+    const failures = runRule(
+      {},
+      `/root/libs/liba/package.json`,
+      JSON.stringify(packageJson, null, 2),
+      {
+        nodes: {
+          liba: {
+            name: 'liba',
+            type: 'lib',
+            data: {
+              root: 'libs/liba',
+              targets: {
+                build: {},
+              },
+            },
+          },
+        },
+        externalNodes,
+        dependencies: {
+          liba: [
+            { source: 'liba', target: 'npm:external1', type: 'static' },
+            { source: 'liba', target: 'npm:external2', type: 'static' },
+            { source: 'liba', target: 'npm:external3', type: 'static' },
+            { source: 'liba', target: 'npm:external4', type: 'static' },
+          ],
+        },
+      },
+      {
+        liba: [
+          createFile(`libs/liba/src/main.ts`, [
+            'npm:external1',
+            'npm:external2',
+            'npm:external3',
+            'npm:external4',
+          ]),
+          createFile(`libs/liba/package.json`, [
+            'npm:external1',
+            'npm:external2',
+            'npm:external3',
+            'npm:external4',
+          ]),
+        ],
+      }
+    );
+    expect(failures.length).toEqual(0);
+  });
+
+  it('should not report catalog: protocol', () => {
+    const packageJson = {
+      name: '@mycompany/liba',
+      dependencies: {
+        external1: 'catalog:',
+        external2: 'catalog:nx',
+      },
+    };
+
+    const fileSys = {
+      './libs/liba/package.json': JSON.stringify(packageJson, null, 2),
+      './libs/liba/src/index.ts': '',
+      './package.json': JSON.stringify(rootPackageJson, null, 2),
+    };
+    vol.fromJSON(fileSys, '/root');
+
+    const failures = runRule(
+      {},
+      `/root/libs/liba/package.json`,
+      JSON.stringify(packageJson, null, 2),
+      {
+        nodes: {
+          liba: {
+            name: 'liba',
+            type: 'lib',
+            data: {
+              root: 'libs/liba',
+              targets: {
+                build: {},
+              },
+            },
+          },
+        },
+        externalNodes,
+        dependencies: {
+          liba: [
+            { source: 'liba', target: 'npm:external1', type: 'static' },
+            { source: 'liba', target: 'npm:external2', type: 'static' },
+          ],
+        },
+      },
+      {
+        liba: [
+          createFile(`libs/liba/src/main.ts`, [
+            'npm:external1',
+            'npm:external2',
+          ]),
+          createFile(`libs/liba/package.json`, [
+            'npm:external1',
+            'npm:external2',
+          ]),
+        ],
+      }
+    );
+    expect(failures.length).toEqual(0);
+  });
+
+  it('should require swc if @nx/js:swc executor', () => {
+    const packageJson = {
+      name: '@mycompany/liba',
+      dependencies: {
+        external1: '^16.0.0',
+      },
+    };
+
+    const swcrc = {
+      jsc: {
+        externalHelpers: true,
+      },
+    };
+
+    const fileSys = {
+      './libs/liba/package.json': JSON.stringify(packageJson, null, 2),
+      './libs/liba/src/index.ts': '',
+      './libs/liba/.swcrc': JSON.stringify(swcrc, null, 2),
+      './package.json': JSON.stringify(rootPackageJson, null, 2),
+    };
+    vol.fromJSON(fileSys, '/root');
+
+    const failures = runRule(
+      {},
+      `/root/libs/liba/package.json`,
+      JSON.stringify(packageJson, null, 2),
+      {
+        nodes: {
+          liba: {
+            name: 'liba',
+            type: 'lib',
+            data: {
+              root: 'libs/liba',
+              targets: {
+                build: {
+                  executor: '@nx/js:swc',
+                  options: {},
+                },
+              },
+            },
+          },
+        },
+        externalNodes,
+        dependencies: {
+          liba: [{ source: 'liba', target: 'npm:external1', type: 'static' }],
+        },
+      },
+      {
+        liba: [
+          createFile(`libs/liba/src/main.ts`, ['npm:external1']),
+          createFile(`libs/liba/package.json`, ['npm:external1']),
+        ],
+      }
+    );
+    expect(failures.length).toEqual(1);
+    expect(failures[0].message).toMatchInlineSnapshot(`
     "The "liba" project uses the following packages, but they are missing from "dependencies":
         - @swc/helpers"
   `);
-  expect(failures[0].line).toEqual(3);
+    expect(failures[0].line).toEqual(3);
+  });
+
+  it('should require packages in runtimeHelpers', () => {
+    const packageJson = {
+      name: '@mycompany/liba',
+      dependencies: { external1: '^16.0.0' },
+    };
+
+    const swcrc = { jsc: { externalHelpers: true } };
+
+    const fileSys = {
+      './libs/liba/package.json': JSON.stringify(packageJson, null, 2),
+      './libs/liba/src/index.ts': '',
+      './libs/liba/.swcrc': JSON.stringify(swcrc, null, 2),
+      './package.json': JSON.stringify(rootPackageJson, null, 2),
+    };
+    vol.fromJSON(fileSys, '/root');
+
+    const failures = runRule(
+      { runtimeHelpers: ['@swc/helpers'] },
+      `/root/libs/liba/package.json`,
+      JSON.stringify(packageJson, null, 2),
+      {
+        nodes: {
+          liba: {
+            name: 'liba',
+            type: 'lib',
+            data: {
+              root: 'libs/liba',
+              targets: {
+                build: {
+                  // custom executor that the rule wouldn't know about
+                  executor: '@my-org/some-package:build',
+                },
+              },
+            },
+          },
+        },
+        externalNodes,
+        dependencies: {
+          liba: [{ source: 'liba', target: 'npm:external1', type: 'static' }],
+        },
+      },
+      {
+        liba: [
+          createFile(`libs/liba/src/main.ts`, ['npm:external1']),
+          createFile(`libs/liba/package.json`, ['npm:external1']),
+        ],
+      }
+    );
+    expect(failures.length).toEqual(1);
+    expect(failures[0].message).toMatchInlineSnapshot(`
+    "The "liba" project uses the following packages, but they are missing from "dependencies":
+        - @swc/helpers"
+  `);
+    expect(failures[0].line).toEqual(3);
+  });
+
+  it('should not report unused packages when specified in runtimeHelpers', () => {
+    const packageJson = {
+      name: '@mycompany/liba',
+      dependencies: { '@swc/helpers': '1.2.3', external1: '^16.0.0' },
+    };
+
+    const swcrc = { jsc: { externalHelpers: true } };
+
+    const fileSys = {
+      './libs/liba/package.json': JSON.stringify(packageJson, null, 2),
+      './libs/liba/src/index.ts': '',
+      './libs/liba/.swcrc': JSON.stringify(swcrc, null, 2),
+      './package.json': JSON.stringify(rootPackageJson, null, 2),
+    };
+    vol.fromJSON(fileSys, '/root');
+
+    const failures = runRule(
+      { runtimeHelpers: ['@swc/helpers'] },
+      `/root/libs/liba/package.json`,
+      JSON.stringify(packageJson, null, 2),
+      {
+        nodes: {
+          liba: {
+            name: 'liba',
+            type: 'lib',
+            data: {
+              root: 'libs/liba',
+              targets: {
+                build: {
+                  // custom executor that the rule wouldn't know about
+                  executor: '@my-org/some-package:build',
+                },
+              },
+            },
+          },
+        },
+        externalNodes,
+        dependencies: {
+          liba: [{ source: 'liba', target: 'npm:external1', type: 'static' }],
+        },
+      },
+      {
+        liba: [
+          createFile(`libs/liba/src/main.ts`, ['npm:external1']),
+          createFile(`libs/liba/package.json`, ['npm:external1']),
+        ],
+      }
+    );
+    expect(failures.length).toEqual(0);
+  });
 });
 
 function createFile(f: string, deps?: FileDataDependency[]): FileData {

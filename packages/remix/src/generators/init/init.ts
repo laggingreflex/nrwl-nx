@@ -1,43 +1,16 @@
 import {
-  type Tree,
+  addDependenciesToPackageJson,
+  createProjectGraphAsync,
   formatFiles,
   GeneratorCallback,
   readNxJson,
-  updateNxJson,
-  addDependenciesToPackageJson,
   runTasksInSerial,
+  type Tree,
 } from '@nx/devkit';
-import { updatePackageScripts } from '@nx/devkit/src/utils/update-package-scripts';
-import { createNodes } from '../../plugins/plugin';
+import { addPlugin } from '@nx/devkit/src/utils/add-plugin';
+import { createNodesV2 } from '../../plugins/plugin';
 import { nxVersion, remixVersion } from '../../utils/versions';
 import { type Schema } from './schema';
-
-function addPlugin(tree) {
-  const nxJson = readNxJson(tree);
-  nxJson.plugins ??= [];
-
-  for (const plugin of nxJson.plugins) {
-    if (
-      typeof plugin === 'string'
-        ? plugin === '@nx/remix/plugin'
-        : plugin.plugin === '@nx/remix/plugin'
-    ) {
-      return;
-    }
-  }
-
-  nxJson.plugins.push({
-    plugin: '@nx/remix/plugin',
-    options: {
-      buildTargetName: 'build',
-      serveTargetName: 'serve',
-      startTargetName: 'start',
-      typecheckTargetName: 'typecheck',
-    },
-  });
-
-  updateNxJson(tree, nxJson);
-}
 
 export function remixInitGenerator(tree: Tree, options: Schema) {
   return remixInitGeneratorInternal(tree, { addPlugin: false, ...options });
@@ -62,13 +35,44 @@ export async function remixInitGeneratorInternal(tree: Tree, options: Schema) {
     tasks.push(installTask);
   }
 
-  options.addPlugin ??= process.env.NX_ADD_PLUGINS !== 'false';
+  const nxJson = readNxJson(tree);
+  const addPluginDefault =
+    process.env.NX_ADD_PLUGINS !== 'false' &&
+    nxJson.useInferencePlugins !== false;
+  options.addPlugin ??= addPluginDefault;
   if (options.addPlugin) {
-    addPlugin(tree);
-  }
-
-  if (options.updatePackageScripts) {
-    await updatePackageScripts(tree, createNodes);
+    await addPlugin(
+      tree,
+      await createProjectGraphAsync(),
+      '@nx/remix/plugin',
+      createNodesV2,
+      {
+        startTargetName: ['start', 'remix:start', 'remix-start'],
+        buildTargetName: ['build', 'remix:build', 'remix-build'],
+        devTargetName: ['dev', 'remix:dev', 'remix-dev'],
+        typecheckTargetName: [
+          'typecheck',
+          'remix:typecheck',
+          'remix-typecheck',
+        ],
+        serveStaticTargetName: [
+          'serve-static',
+          'remix:serve-static',
+          'remix-serve-static',
+        ],
+        buildDepsTargetName: [
+          'build-deps',
+          'remix:build-deps',
+          'remix-build-deps',
+        ],
+        watchDepsTargetName: [
+          'watch-deps',
+          'remix:watch-deps',
+          'remix-watch-deps',
+        ],
+      },
+      options.updatePackageScripts
+    );
   }
 
   if (!options.skipFormat) {

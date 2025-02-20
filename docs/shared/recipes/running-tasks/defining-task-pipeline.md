@@ -9,6 +9,8 @@ Running a specific task like `build` in a monorepo usually involves running mult
 
 If you want to learn more about the concept of a task pipeline and its importance in a monorepo, have a look at [the What is a Task Pipeline page](/concepts/task-pipeline-configuration).
 
+{% youtube src="https://youtu.be/_U4hu6SuBaY?si=rSclPBdRh7P_xZ_f" title="Define a task pipeline" /%}
+
 ## Define Dependencies Between Tasks
 
 You can define dependencies among tasks by using the `dependsOn` property:
@@ -99,7 +101,7 @@ And then select "Tasks" from the top-left dropdown, choose the target (e.g. `bui
 
 ![Task graph of the Playwright Nx plugin in the nx repo being rendered in the browser](/shared/recipes/running-tasks/task-graph-playwright-nx.webp)
 
-Alternatively you can use the [Nx Console](/features/integrate-with-editors) extension in VSCode or IntelliJ, right-click on the project and select:
+Alternatively you can use the [Nx Console](/getting-started/editor-setup) extension in VSCode or IntelliJ, right-click on the project and select:
 
 ![Selecting "Focus task in Nx Graph" from the context menu in VS Code](/shared/recipes/running-tasks/task-graph-context-menu.webp)
 

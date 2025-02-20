@@ -1,12 +1,15 @@
 import {
-  CreateDependencies,
   CreateNodes,
   CreateNodesContext,
+  createNodesFromFiles,
+  CreateNodesResult,
+  CreateNodesV2,
   detectPackageManager,
+  getPackageManagerCommand,
+  logger,
   NxJsonConfiguration,
   readJsonFile,
   TargetConfiguration,
-  workspaceRoot,
   writeJsonFile,
 } from '@nx/devkit';
 import { dirname, join } from 'path';
@@ -14,7 +17,10 @@ import { getLockFileName } from '@nx/js';
 import { getNamedInputs } from '@nx/devkit/src/utils/get-named-inputs';
 import { existsSync, readdirSync } from 'fs';
 import { calculateHashForCreateNodes } from '@nx/devkit/src/utils/calculate-hash-for-create-nodes';
-import { projectGraphCacheDirectory } from 'nx/src/utils/cache-directory';
+import { workspaceDataDirectory } from 'nx/src/utils/cache-directory';
+import { hashObject } from 'nx/src/devkit-internals';
+import { loadConfigFile } from '@nx/devkit/src/utils/config-utils';
+import { addBuildAndWatchDepsTargets } from '@nx/js/src/plugins/typescript/util';
 
 export interface ExpoPluginOptions {
   startTargetName?: string;
@@ -26,76 +32,118 @@ export interface ExpoPluginOptions {
   installTargetName?: string;
   buildTargetName?: string;
   submitTargetName?: string;
+  buildDepsTargetName?: string;
+  watchDepsTargetName?: string;
 }
+const pmc = getPackageManagerCommand();
 
-const cachePath = join(projectGraphCacheDirectory, 'expo.hash');
-const targetsCache = existsSync(cachePath) ? readTargetsCache() : {};
-
-const calculatedTargets: Record<
-  string,
-  Record<string, TargetConfiguration>
-> = {};
-
-function readTargetsCache(): Record<
-  string,
-  Record<string, TargetConfiguration<ExpoPluginOptions>>
-> {
-  return readJsonFile(cachePath);
+function readTargetsCache(
+  cachePath: string
+): Record<string, Record<string, TargetConfiguration<ExpoPluginOptions>>> {
+  return existsSync(cachePath) ? readJsonFile(cachePath) : {};
 }
 
 function writeTargetsToCache(
-  targets: Record<
+  cachePath: string,
+  targetsCache: Record<
     string,
     Record<string, TargetConfiguration<ExpoPluginOptions>>
   >
 ) {
-  writeJsonFile(cachePath, targets);
+  const oldCache = readTargetsCache(cachePath);
+  writeJsonFile(cachePath, {
+    ...oldCache,
+    targetsCache,
+  });
 }
 
-export const createDependencies: CreateDependencies = () => {
-  writeTargetsToCache(calculatedTargets);
-  return [];
-};
+export const createNodesV2: CreateNodesV2<ExpoPluginOptions> = [
+  '**/app.{json,config.js,config.ts}',
+  async (configFiles, options, context) => {
+    const optionsHash = hashObject(options);
+    const cachePath = join(workspaceDataDirectory, `expo-${optionsHash}.hash`);
+    const targetsCache = readTargetsCache(cachePath);
 
-export const createNodes: CreateNodes<ExpoPluginOptions> = [
-  '**/app.{json,config.js}',
-  (configFilePath, options, context) => {
-    options = normalizeOptions(options);
-    const projectRoot = dirname(configFilePath);
-
-    // Do not create a project if package.json or project.json or metro.config.js isn't there.
-    const siblingFiles = readdirSync(join(context.workspaceRoot, projectRoot));
-    if (
-      !siblingFiles.includes('package.json') ||
-      !siblingFiles.includes('metro.config.js')
-    ) {
-      return {};
+    try {
+      return await createNodesFromFiles(
+        (configFile, options, context) =>
+          createNodesInternal(configFile, options, context, targetsCache),
+        configFiles,
+        options,
+        context
+      );
+    } finally {
+      writeTargetsToCache(cachePath, targetsCache);
     }
-    const appConfig = getAppConfig(configFilePath, context);
-    // if appConfig.expo is not defined
-    if (!appConfig.expo) {
-      return {};
-    }
-
-    const hash = calculateHashForCreateNodes(projectRoot, options, context, [
-      getLockFileName(detectPackageManager(context.workspaceRoot)),
-    ]);
-
-    const targets = targetsCache[hash]
-      ? targetsCache[hash]
-      : buildExpoTargets(projectRoot, options, context);
-
-    calculatedTargets[hash] = targets;
-
-    return {
-      projects: {
-        [projectRoot]: {
-          targets,
-        },
-      },
-    };
   },
 ];
+
+export const createNodes: CreateNodes<ExpoPluginOptions> = [
+  '**/app.{json,config.js,config.ts}',
+  async (configFilePath, options, context) => {
+    logger.warn(
+      '`createNodes` is deprecated. Update your plugin to utilize createNodesV2 instead. In Nx 20, this will change to the createNodesV2 API.'
+    );
+
+    const optionsHash = hashObject(options);
+    const cachePath = join(workspaceDataDirectory, `expo-${optionsHash}.hash`);
+    const targetsCache = readTargetsCache(cachePath);
+
+    return createNodesInternal(configFilePath, options, context, targetsCache);
+  },
+];
+
+async function createNodesInternal(
+  configFile: string,
+  options: ExpoPluginOptions,
+  context: CreateNodesContext,
+  targetsCache: Record<
+    string,
+    Record<string, TargetConfiguration<ExpoPluginOptions>>
+  >
+): Promise<CreateNodesResult> {
+  options = normalizeOptions(options);
+  const projectRoot = dirname(configFile);
+
+  // Do not create a project if package.json or project.json or metro.config.js isn't there.
+  const siblingFiles = readdirSync(join(context.workspaceRoot, projectRoot));
+  if (
+    !siblingFiles.includes('package.json') ||
+    !siblingFiles.includes('metro.config.js')
+  ) {
+    return {};
+  }
+
+  // Check if it's an Expo project
+  const packageJson = readJsonFile(
+    join(context.workspaceRoot, projectRoot, 'package.json')
+  );
+  const appConfig = await getAppConfig(configFile, context);
+  if (
+    !appConfig.expo &&
+    !packageJson.dependencies?.['expo'] &&
+    !packageJson.devDependencies?.['expo']
+  ) {
+    return {};
+  }
+
+  const hash = await calculateHashForCreateNodes(
+    projectRoot,
+    options,
+    context,
+    [getLockFileName(detectPackageManager(context.workspaceRoot))]
+  );
+
+  targetsCache[hash] ??= buildExpoTargets(projectRoot, options, context);
+
+  return {
+    projects: {
+      [projectRoot]: {
+        targets: targetsCache[hash],
+      },
+    },
+  };
+}
 
 function buildExpoTargets(
   projectRoot: string,
@@ -106,12 +154,11 @@ function buildExpoTargets(
 
   const targets: Record<string, TargetConfiguration> = {
     [options.startTargetName]: {
-      command: `expo start`,
-      options: { cwd: projectRoot },
+      executor: `@nx/expo:start`,
     },
     [options.serveTargetName]: {
       command: `expo start --web`,
-      options: { cwd: projectRoot },
+      options: { cwd: projectRoot, args: ['--clear'] },
     },
     [options.runIosTargetName]: {
       command: `expo run:ios`,
@@ -123,22 +170,20 @@ function buildExpoTargets(
     },
     [options.exportTargetName]: {
       command: `expo export`,
-      options: { cwd: projectRoot },
+      options: { cwd: projectRoot, args: ['--clear'] },
       cache: true,
       dependsOn: [`^${options.exportTargetName}`],
       inputs: getInputs(namedInputs),
       outputs: [getOutputs(projectRoot, 'dist')],
     },
     [options.installTargetName]: {
-      command: `expo install`,
-      options: { cwd: workspaceRoot }, // install at workspace root
+      executor: '@nx/expo:install',
     },
     [options.prebuildTargetName]: {
       executor: `@nx/expo:prebuild`,
     },
     [options.buildTargetName]: {
-      command: `eas build`,
-      options: { cwd: projectRoot },
+      executor: `@nx/expo:build`,
     },
     [options.submitTargetName]: {
       command: `eas submit`,
@@ -146,17 +191,24 @@ function buildExpoTargets(
     },
   };
 
+  addBuildAndWatchDepsTargets(
+    context.workspaceRoot,
+    projectRoot,
+    targets,
+    options,
+    pmc
+  );
+
   return targets;
 }
 
 function getAppConfig(
   configFilePath: string,
   context: CreateNodesContext
-): any {
+): Promise<any> {
   const resolvedPath = join(context.workspaceRoot, configFilePath);
 
-  let module = load(resolvedPath);
-  return module.default ?? module;
+  return loadConfigFile(resolvedPath);
 }
 
 function getInputs(
@@ -178,21 +230,6 @@ function getOutputs(projectRoot: string, dir: string) {
   } else {
     return `{workspaceRoot}/${projectRoot}/${dir}`;
   }
-}
-
-/**
- * Load the module after ensuring that the require cache is cleared.
- */
-function load(path: string): any {
-  // Clear cache if the path is in the cache
-  if (require.cache[path]) {
-    for (const k of Object.keys(require.cache)) {
-      delete require.cache[k];
-    }
-  }
-
-  // Then require
-  return require(path);
 }
 
 function normalizeOptions(options: ExpoPluginOptions): ExpoPluginOptions {

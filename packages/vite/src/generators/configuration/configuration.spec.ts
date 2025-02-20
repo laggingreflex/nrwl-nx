@@ -1,4 +1,13 @@
-import { addDependenciesToPackageJson, readJson, Tree } from '@nx/devkit';
+import 'nx/src/internal-testing-utils/mock-project-graph';
+
+import {
+  addDependenciesToPackageJson,
+  addProjectConfiguration,
+  readJson,
+  Tree,
+  updateJson,
+  writeJson,
+} from '@nx/devkit';
 import { createTreeWithEmptyWorkspace } from '@nx/devkit/testing';
 import { nxVersion } from '../../utils/versions';
 
@@ -8,10 +17,12 @@ import {
   mockReactAppGenerator,
   mockReactLibNonBuildableJestTestRunnerGenerator,
   mockReactLibNonBuildableVitestRunnerGenerator,
-  mockReactMixedAppGenerator,
   mockUnknownAppGenerator,
   mockWebAppGenerator,
 } from '../../utils/test-utils';
+
+import { libraryGenerator as jsLibraryGenerator } from '@nx/js/src/generators/library/library';
+import { LibraryGeneratorSchema } from '@nx/js/src/generators/library/schema';
 
 describe('@nx/vite:configuration', () => {
   let tree: Tree;
@@ -31,6 +42,7 @@ describe('@nx/vite:configuration', () => {
         addPlugin: true,
         uiFramework: 'react',
         project: 'my-test-react-app',
+        projectType: 'application',
       });
     });
 
@@ -244,6 +256,158 @@ describe('@nx/vite:configuration', () => {
       } catch (e) {
         throw new Error('Should not throw error');
       }
+    });
+  });
+
+  describe('js library with --bundler=vite', () => {
+    const defaultOptions: Omit<LibraryGeneratorSchema, 'directory'> = {
+      skipTsConfig: false,
+      includeBabelRc: false,
+      unitTestRunner: 'jest',
+      skipFormat: false,
+      linter: 'eslint',
+      testEnvironment: 'jsdom',
+      js: false,
+      strict: true,
+      config: 'project',
+    };
+
+    beforeEach(() => {
+      tree = createTreeWithEmptyWorkspace({ layout: 'apps-libs' });
+    });
+
+    it('should add build and test targets with vite and vitest', async () => {
+      await jsLibraryGenerator(tree, {
+        ...defaultOptions,
+        directory: 'my-lib',
+        bundler: 'vite',
+        unitTestRunner: 'vitest',
+      });
+
+      expect(tree.exists('my-lib/vite.config.ts')).toBeTruthy();
+      expect(tree.read('my-lib/vite.config.ts', 'utf-8')).toMatchSnapshot();
+      expect(tree.read('my-lib/README.md', 'utf-8')).toMatchSnapshot();
+      expect(tree.read('my-lib/tsconfig.lib.json', 'utf-8')).toMatchSnapshot();
+      expect(readJson(tree, 'my-lib/.eslintrc.json').overrides).toContainEqual({
+        files: ['*.json'],
+        parser: 'jsonc-eslint-parser',
+        rules: {
+          '@nx/dependency-checks': [
+            'error',
+            {
+              ignoredFiles: [
+                '{projectRoot}/eslint.config.{js,cjs,mjs}',
+                '{projectRoot}/vite.config.{js,ts,mjs,mts}',
+              ],
+            },
+          ],
+        },
+      });
+    });
+
+    it.each`
+      unitTestRunner | configPath
+      ${'none'}      | ${undefined}
+      ${'jest'}      | ${'my-lib/jest.config.ts'}
+    `(
+      'should respect provided unitTestRunner="$unitTestRunner"',
+      async ({ unitTestRunner, configPath }) => {
+        await jsLibraryGenerator(tree, {
+          ...defaultOptions,
+          directory: 'my-lib',
+          bundler: 'vite',
+          unitTestRunner,
+        });
+
+        expect(tree.read('my-lib/README.md', 'utf-8')).toMatchSnapshot();
+        expect(
+          tree.read('my-lib/tsconfig.lib.json', 'utf-8')
+        ).toMatchSnapshot();
+        if (configPath) {
+          expect(tree.read(configPath, 'utf-8')).toMatchSnapshot();
+        }
+      }
+    );
+  });
+
+  describe('TS solution setup', () => {
+    beforeAll(async () => {
+      tree = createTreeWithEmptyWorkspace();
+      updateJson(tree, '/package.json', (json) => {
+        json.workspaces = ['packages/*', 'apps/*'];
+        return json;
+      });
+      writeJson(tree, 'tsconfig.base.json', {
+        compilerOptions: {
+          composite: true,
+          declaration: true,
+        },
+      });
+      writeJson(tree, 'tsconfig.json', {
+        extends: './tsconfig.base.json',
+        files: [],
+        references: [],
+      });
+    });
+
+    it('should create package.json with exports field for libraries', async () => {
+      addProjectConfiguration(tree, 'my-lib', {
+        root: 'packages/my-lib',
+      });
+      writeJson(tree, 'packages/my-lib/tsconfig.lib.json', {});
+      writeJson(tree, 'packages/my-lib/tsconfig.json', {});
+
+      await viteConfigurationGenerator(tree, {
+        addPlugin: true,
+        uiFramework: 'none',
+        project: 'my-lib',
+        projectType: 'library',
+        newProject: true,
+      });
+
+      expect(readJson(tree, 'packages/my-lib/package.json'))
+        .toMatchInlineSnapshot(`
+        {
+          "exports": {
+            ".": {
+              "default": "./dist/index.js",
+              "import": "./dist/index.js",
+              "types": "./dist/index.d.ts",
+            },
+            "./package.json": "./package.json",
+          },
+          "main": "./dist/index.js",
+          "module": "./dist/index.js",
+          "name": "@proj/my-lib",
+          "type": "module",
+          "types": "./dist/index.d.ts",
+          "version": "0.0.1",
+        }
+      `);
+    });
+
+    it('should create package.json without exports field for apps', async () => {
+      addProjectConfiguration(tree, 'my-app', {
+        root: 'apps/my-app',
+      });
+      writeJson(tree, 'apps/my-app/tsconfig.app.json', {});
+      writeJson(tree, 'apps/my-app/tsconfig.json', {});
+
+      await viteConfigurationGenerator(tree, {
+        addPlugin: true,
+        uiFramework: 'none',
+        project: 'my-app',
+        projectType: 'application',
+        newProject: true,
+      });
+
+      expect(readJson(tree, 'apps/my-app/package.json')).toMatchInlineSnapshot(`
+        {
+          "name": "@proj/my-app",
+          "private": true,
+          "version": "0.0.1",
+        }
+      `);
     });
   });
 });

@@ -16,36 +16,57 @@ use ProjectsConfigurations or NxJsonConfiguration
 
 ### Properties
 
+- [$schema](../../devkit/documents/Workspace#$schema): string
 - [affected](../../devkit/documents/Workspace#affected): NxAffectedConfig
 - [cacheDirectory](../../devkit/documents/Workspace#cachedirectory): string
 - [cli](../../devkit/documents/Workspace#cli): Object
+- [defaultBase](../../devkit/documents/Workspace#defaultbase): string
 - [defaultProject](../../devkit/documents/Workspace#defaultproject): string
 - [extends](../../devkit/documents/Workspace#extends): string
 - [generators](../../devkit/documents/Workspace#generators): Object
 - [implicitDependencies](../../devkit/documents/Workspace#implicitdependencies): ImplicitDependencyEntry<string[] | "\*">
 - [installation](../../devkit/documents/Workspace#installation): NxInstallationConfiguration
 - [namedInputs](../../devkit/documents/Workspace#namedinputs): Object
+- [neverConnectToCloud](../../devkit/documents/Workspace#neverconnecttocloud): boolean
 - [nxCloudAccessToken](../../devkit/documents/Workspace#nxcloudaccesstoken): string
 - [nxCloudEncryptionKey](../../devkit/documents/Workspace#nxcloudencryptionkey): string
+- [nxCloudId](../../devkit/documents/Workspace#nxcloudid): string
 - [nxCloudUrl](../../devkit/documents/Workspace#nxcloudurl): string
 - [parallel](../../devkit/documents/Workspace#parallel): number
 - [plugins](../../devkit/documents/Workspace#plugins): PluginConfiguration[]
 - [pluginsConfig](../../devkit/documents/Workspace#pluginsconfig): Record<string, Record<string, unknown>>
 - [projects](../../devkit/documents/Workspace#projects): Record<string, ProjectConfiguration>
 - [release](../../devkit/documents/Workspace#release): NxReleaseConfiguration
+- [sync](../../devkit/documents/Workspace#sync): NxSyncConfiguration
 - [targetDefaults](../../devkit/documents/Workspace#targetdefaults): TargetDefaults
 - [tasksRunnerOptions](../../devkit/documents/Workspace#tasksrunneroptions): Object
 - [useDaemonProcess](../../devkit/documents/Workspace#usedaemonprocess): boolean
+- [useInferencePlugins](../../devkit/documents/Workspace#useinferenceplugins): boolean
+- [useLegacyCache](../../devkit/documents/Workspace#uselegacycache): boolean
 - [version](../../devkit/documents/Workspace#version): number
 - [workspaceLayout](../../devkit/documents/Workspace#workspacelayout): Object
 
 ## Properties
+
+### $schema
+
+• `Optional` **$schema**: `string`
+
+#### Inherited from
+
+[NxJsonConfiguration](../../devkit/documents/NxJsonConfiguration).[$schema](../../devkit/documents/NxJsonConfiguration#$schema)
+
+---
 
 ### affected
 
 • `Optional` **affected**: [`NxAffectedConfig`](../../devkit/documents/NxAffectedConfig)
 
 Default options for `nx affected`
+
+**`Deprecated`**
+
+use [defaultBase](../../devkit/documents/NxJsonConfiguration#defaultbase) instead. For more information see https://nx.dev/deprecated/affected-config#affected-config
 
 #### Inherited from
 
@@ -81,6 +102,18 @@ Default generator collection. It is used when no collection is provided.
 #### Inherited from
 
 [NxJsonConfiguration](../../devkit/documents/NxJsonConfiguration).[cli](../../devkit/documents/NxJsonConfiguration#cli)
+
+---
+
+### defaultBase
+
+• `Optional` **defaultBase**: `string`
+
+Default value for --base used by `nx affected` and `nx format`.
+
+#### Inherited from
+
+[NxJsonConfiguration](../../devkit/documents/NxJsonConfiguration).[defaultBase](../../devkit/documents/NxJsonConfiguration#defaultbase)
 
 ---
 
@@ -185,6 +218,18 @@ Named inputs targets can refer to reduce duplication
 
 ---
 
+### neverConnectToCloud
+
+• `Optional` **neverConnectToCloud**: `boolean`
+
+Set this to true to disable connection to Nx Cloud
+
+#### Inherited from
+
+[NxJsonConfiguration](../../devkit/documents/NxJsonConfiguration).[neverConnectToCloud](../../devkit/documents/NxJsonConfiguration#neverconnecttocloud)
+
+---
+
 ### nxCloudAccessToken
 
 • `Optional` **nxCloudAccessToken**: `string`
@@ -207,6 +252,19 @@ Specifies the encryption key used to encrypt artifacts data before sending it to
 #### Inherited from
 
 [NxJsonConfiguration](../../devkit/documents/NxJsonConfiguration).[nxCloudEncryptionKey](../../devkit/documents/NxJsonConfiguration#nxcloudencryptionkey)
+
+---
+
+### nxCloudId
+
+• `Optional` **nxCloudId**: `string`
+
+If specified Nx will use nx-cloud by default with the given cloud id.
+To use a different runner that accepts a cloud id, define it in [tasksRunnerOptions](../../devkit/documents/NxJsonConfiguration#tasksrunneroptions)
+
+#### Inherited from
+
+[NxJsonConfiguration](../../devkit/documents/NxJsonConfiguration).[nxCloudId](../../devkit/documents/NxJsonConfiguration#nxcloudid)
 
 ---
 
@@ -283,6 +341,18 @@ Configuration for `nx release` (versioning and publishing of applications and li
 
 ---
 
+### sync
+
+• `Optional` **sync**: `NxSyncConfiguration`
+
+Configuration for the `nx sync` command.
+
+#### Inherited from
+
+[NxJsonConfiguration](../../devkit/documents/NxJsonConfiguration).[sync](../../devkit/documents/NxJsonConfiguration#sync)
+
+---
+
 ### targetDefaults
 
 • `Optional` **targetDefaults**: [`TargetDefaults`](../../devkit/documents/TargetDefaults)
@@ -299,7 +369,10 @@ Dependencies between different target names across all projects
 
 • `Optional` **tasksRunnerOptions**: `Object`
 
-Available Task Runners
+**`Deprecated`**
+
+Custom task runners will be replaced by a new API starting with Nx 21. More info: https://nx.dev/deprecated/custom-tasks-runner
+Available Task Runners for Nx to use
 
 #### Index signature
 
@@ -320,6 +393,30 @@ Set this to false to disable the daemon.
 #### Inherited from
 
 [NxJsonConfiguration](../../devkit/documents/NxJsonConfiguration).[useDaemonProcess](../../devkit/documents/NxJsonConfiguration#usedaemonprocess)
+
+---
+
+### useInferencePlugins
+
+• `Optional` **useInferencePlugins**: `boolean`
+
+Set this to false to disable adding inference plugins when generating new projects
+
+#### Inherited from
+
+[NxJsonConfiguration](../../devkit/documents/NxJsonConfiguration).[useInferencePlugins](../../devkit/documents/NxJsonConfiguration#useinferenceplugins)
+
+---
+
+### useLegacyCache
+
+• `Optional` **useLegacyCache**: `boolean`
+
+Use the legacy file system cache instead of the db cache
+
+#### Inherited from
+
+[NxJsonConfiguration](../../devkit/documents/NxJsonConfiguration).[useLegacyCache](../../devkit/documents/NxJsonConfiguration#uselegacycache)
 
 ---
 

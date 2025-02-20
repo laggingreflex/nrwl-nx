@@ -1,5 +1,6 @@
 import { minimatch } from 'minimatch';
 import type { ProjectGraphProjectNode } from '../config/project-graph';
+import { isGlobPattern } from './globs';
 
 const validPatternTypes = [
   'name', // Pattern is based on the project's name
@@ -7,7 +8,7 @@ const validPatternTypes = [
   'directory', // Pattern is based on the project's root directory
   'unlabeled', // Pattern was passed without specifying a type
 ] as const;
-type ProjectPatternType = typeof validPatternTypes[number];
+type ProjectPatternType = (typeof validPatternTypes)[number];
 
 interface ProjectPattern {
   // If true, the pattern is an exclude pattern
@@ -17,8 +18,6 @@ interface ProjectPattern {
   // The pattern to match against
   value: string;
 }
-
-const globCharacters = ['*', '|', '{', '}', '(', ')'];
 
 /**
  * Find matching project names given a list of potential project names or globs.
@@ -39,8 +38,19 @@ export function findMatchingProjects(
 
   const matchedProjects: Set<string> = new Set();
 
+  // If the first pattern is an exclude pattern,
+  // we add a wildcard pattern at the first to select
+  // all projects, except the ones that match the exclude pattern.
+  // e.g. ['!tag:someTag', 'project2'] will match all projects except
+  // the ones with the tag 'someTag', and also match the project 'project2',
+  // regardless of its tags.
+  if (isExcludePattern(patterns[0])) {
+    patterns.unshift('*');
+  }
+
   for (const stringPattern of patterns) {
-    if (!stringPattern.length) {
+    // Do not waste time attempting to look up cross-workspace references which will never match
+    if (!stringPattern.length || stringPattern.startsWith('nx-cloud:')) {
       continue;
     }
 
@@ -156,7 +166,22 @@ function addMatchingProjectsByName(
     return;
   }
 
-  if (!globCharacters.some((c) => pattern.value.includes(c))) {
+  if (!isGlobPattern(pattern.value)) {
+    // Custom regex that is basically \b without underscores, so "foo" pattern matches "foo_bar".
+    const regex = new RegExp(
+      `(?<![a-zA-Z0-9])${pattern.value}(?![a-zA-Z0-9])`,
+      'i'
+    );
+    const matchingProjects = Object.keys(projects).filter((name) =>
+      regex.test(name)
+    );
+    for (const projectName of matchingProjects) {
+      if (pattern.exclude) {
+        matchedProjects.delete(projectName);
+      } else {
+        matchedProjects.add(projectName);
+      }
+    }
     return;
   }
 
@@ -191,7 +216,7 @@ function addMatchingProjectsByTag(
       continue;
     }
 
-    if (!globCharacters.some((c) => pattern.value.includes(c))) {
+    if (!isGlobPattern(pattern.value)) {
       continue;
     }
 
@@ -205,11 +230,15 @@ function addMatchingProjectsByTag(
   }
 }
 
+function isExcludePattern(pattern: string): boolean {
+  return pattern.startsWith('!');
+}
+
 function parseStringPattern(
   pattern: string,
   projects: Record<string, ProjectGraphProjectNode>
 ): ProjectPattern {
-  const isExclude = pattern.startsWith('!');
+  const isExclude = isExcludePattern(pattern);
 
   // Support for things like: `!{type}:value`
   if (isExclude) {

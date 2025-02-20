@@ -1,7 +1,9 @@
 import {
-  CreateDependencies,
   CreateNodes,
   CreateNodesContext,
+  createNodesFromFiles,
+  CreateNodesResult,
+  CreateNodesV2,
   detectPackageManager,
   joinPathFragments,
   NxJsonConfiguration,
@@ -14,7 +16,9 @@ import { getLockFileName } from '@nx/js';
 import { getNamedInputs } from '@nx/devkit/src/utils/get-named-inputs';
 import { existsSync, readdirSync } from 'fs';
 import { calculateHashForCreateNodes } from '@nx/devkit/src/utils/calculate-hash-for-create-nodes';
-import { projectGraphCacheDirectory } from 'nx/src/utils/cache-directory';
+import { workspaceDataDirectory } from 'nx/src/utils/cache-directory';
+import { loadConfigFile } from '@nx/devkit/src/utils/config-utils';
+import { hashObject } from 'nx/src/devkit-internals';
 
 export interface ReactNativePluginOptions {
   startTargetName?: string;
@@ -25,76 +29,130 @@ export interface ReactNativePluginOptions {
   buildAndroidTargetName?: string;
   bundleTargetName?: string;
   syncDepsTargetName?: string;
-  upgradeTargetname?: string;
+  upgradeTargetName?: string;
 }
 
-const cachePath = join(projectGraphCacheDirectory, 'react-native.hash');
-const targetsCache = existsSync(cachePath) ? readTargetsCache() : {};
-
-const calculatedTargets: Record<
-  string,
-  Record<string, TargetConfiguration>
-> = {};
-
-function readTargetsCache(): Record<
+function readTargetsCache(
+  cachePath: string
+): Record<
   string,
   Record<string, TargetConfiguration<ReactNativePluginOptions>>
 > {
-  return readJsonFile(cachePath);
+  return existsSync(cachePath) ? readJsonFile(cachePath) : {};
 }
 
 function writeTargetsToCache(
-  targets: Record<
+  cachePath: string,
+  targetsCache: Record<
     string,
     Record<string, TargetConfiguration<ReactNativePluginOptions>>
   >
 ) {
-  writeJsonFile(cachePath, targets);
+  const oldCache = readTargetsCache(cachePath);
+  writeJsonFile(cachePath, {
+    ...oldCache,
+    targetsCache,
+  });
 }
 
-export const createDependencies: CreateDependencies = () => {
-  writeTargetsToCache(calculatedTargets);
-  return [];
-};
+export const createNodesV2: CreateNodesV2<ReactNativePluginOptions> = [
+  '**/app.{json,config.js,config.ts}',
+  async (configFiles, options, context) => {
+    const optionsHash = hashObject(options);
+    const cachePath = join(
+      workspaceDataDirectory,
+      `react-native-${optionsHash}.hash`
+    );
+    const targetsCache = readTargetsCache(cachePath);
 
-export const createNodes: CreateNodes<ReactNativePluginOptions> = [
-  '**/app.{json,config.js}',
-  (configFilePath, options, context) => {
-    options = normalizeOptions(options);
-    const projectRoot = dirname(configFilePath);
-
-    // Do not create a project if package.json or project.json or metro.config.js isn't there.
-    const siblingFiles = readdirSync(join(context.workspaceRoot, projectRoot));
-    if (
-      !siblingFiles.includes('package.json') ||
-      !siblingFiles.includes('metro.config.js')
-    ) {
-      return {};
+    try {
+      return await createNodesFromFiles(
+        (configFile, options, context) =>
+          createNodesInternal(configFile, options, context, targetsCache),
+        configFiles,
+        options,
+        context
+      );
+    } finally {
+      writeTargetsToCache(cachePath, targetsCache);
     }
-    const appConfig = getAppConfig(configFilePath, context);
-    if (appConfig.expo) {
-      return {};
-    }
-
-    const hash = calculateHashForCreateNodes(projectRoot, options, context, [
-      getLockFileName(detectPackageManager(context.workspaceRoot)),
-    ]);
-
-    const targets = targetsCache[hash]
-      ? targetsCache[hash]
-      : buildReactNativeTargets(projectRoot, options, context);
-
-    calculatedTargets[hash] = targets;
-
-    return {
-      projects: {
-        [projectRoot]: {
-          targets,
-        },
-      },
-    };
   },
 ];
+
+export const createNodes: CreateNodes<ReactNativePluginOptions> = [
+  '**/app.{json,config.js,config.ts}',
+  async (configFilePath, options, context) => {
+    const optionsHash = hashObject(options);
+    const cachePath = join(
+      workspaceDataDirectory,
+      `react-native-${optionsHash}.hash`
+    );
+
+    const targetsCache = readTargetsCache(cachePath);
+    const result = await createNodesInternal(
+      configFilePath,
+      options,
+      context,
+      targetsCache
+    );
+
+    writeTargetsToCache(cachePath, targetsCache);
+
+    return result;
+  },
+];
+
+async function createNodesInternal(
+  configFile: string,
+  options: ReactNativePluginOptions,
+  context: CreateNodesContext,
+  targetsCache: Record<
+    string,
+    Record<string, TargetConfiguration<ReactNativePluginOptions>>
+  >
+): Promise<CreateNodesResult> {
+  options = normalizeOptions(options);
+  const projectRoot = dirname(configFile);
+
+  // Do not create a project if package.json or project.json or metro.config.js isn't there.
+  const siblingFiles = readdirSync(join(context.workspaceRoot, projectRoot));
+  if (
+    !siblingFiles.includes('package.json') ||
+    !siblingFiles.includes('metro.config.js')
+  ) {
+    return {};
+  }
+
+  // Check if it's an Expo project
+  const packageJson = readJsonFile(
+    join(context.workspaceRoot, projectRoot, 'package.json')
+  );
+  const appConfig = await getAppConfig(configFile, context);
+  if (
+    appConfig.expo ||
+    packageJson.dependencies?.['expo'] ||
+    packageJson.devDependencies?.['expo']
+  ) {
+    return {};
+  }
+
+  const hash = await calculateHashForCreateNodes(
+    projectRoot,
+    options,
+    context,
+    [getLockFileName(detectPackageManager(context.workspaceRoot))]
+  );
+
+  targetsCache[hash] ??= buildReactNativeTargets(projectRoot, options, context);
+
+  return {
+    projects: {
+      [projectRoot]: {
+        targets: targetsCache[hash],
+      },
+    },
+  };
+}
 
 function buildReactNativeTargets(
   projectRoot: string,
@@ -112,12 +170,6 @@ function buildReactNativeTargets(
       command: `pod install`,
       options: { cwd: joinPathFragments(projectRoot, 'ios') },
       dependsOn: [`${options.syncDepsTargetName}`],
-      cache: true,
-      inputs: getInputs(namedInputs),
-      outputs: [
-        getOutputs(projectRoot, 'ios/Pods'),
-        getOutputs(projectRoot, 'ios/Podfile.lock'),
-      ],
     },
     [options.runIosTargetName]: {
       command: `react-native run-ios`,
@@ -152,7 +204,7 @@ function buildReactNativeTargets(
     [options.syncDepsTargetName]: {
       executor: '@nx/react-native:sync-deps',
     },
-    [options.upgradeTargetname]: {
+    [options.upgradeTargetName]: {
       command: `react-native upgrade`,
       options: { cwd: projectRoot },
     },
@@ -164,11 +216,10 @@ function buildReactNativeTargets(
 function getAppConfig(
   configFilePath: string,
   context: CreateNodesContext
-): any {
+): Promise<any> {
   const resolvedPath = join(context.workspaceRoot, configFilePath);
 
-  let module = load(resolvedPath);
-  return module.default ?? module;
+  return loadConfigFile(resolvedPath);
 }
 
 function getInputs(
@@ -192,21 +243,6 @@ function getOutputs(projectRoot: string, dir: string) {
   }
 }
 
-/**
- * Load the module after ensuring that the require cache is cleared.
- */
-function load(path: string): any {
-  // Clear cache if the path is in the cache
-  if (require.cache[path]) {
-    for (const k of Object.keys(require.cache)) {
-      delete require.cache[k];
-    }
-  }
-
-  // Then require
-  return require(path);
-}
-
 function normalizeOptions(
   options: ReactNativePluginOptions
 ): ReactNativePluginOptions {
@@ -219,6 +255,6 @@ function normalizeOptions(
   options.buildAndroidTargetName ??= 'build-android';
   options.bundleTargetName ??= 'bundle';
   options.syncDepsTargetName ??= 'sync-deps';
-  options.upgradeTargetname ??= 'upgrade';
+  options.upgradeTargetName ??= 'upgrade';
   return options;
 }

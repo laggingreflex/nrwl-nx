@@ -1,90 +1,160 @@
 import {
   CreateDependencies,
   CreateNodes,
+  CreateNodesV2,
   CreateNodesContext,
   detectPackageManager,
   NxJsonConfiguration,
   readJsonFile,
   TargetConfiguration,
   writeJsonFile,
+  createNodesFromFiles,
+  logger,
+  getPackageManagerCommand,
 } from '@nx/devkit';
-import { dirname, extname, join } from 'path';
+import { dirname, join } from 'path';
 
 import { getNamedInputs } from '@nx/devkit/src/utils/get-named-inputs';
 import { existsSync, readdirSync } from 'fs';
 
-import { projectGraphCacheDirectory } from 'nx/src/utils/cache-directory';
+import { workspaceDataDirectory } from 'nx/src/utils/cache-directory';
 import { calculateHashForCreateNodes } from '@nx/devkit/src/utils/calculate-hash-for-create-nodes';
 import { getLockFileName } from '@nx/js';
+import { loadConfigFile } from '@nx/devkit/src/utils/config-utils';
+import { hashObject } from 'nx/src/devkit-internals';
+import { addBuildAndWatchDepsTargets } from '@nx/js/src/plugins/typescript/util';
 
 export interface NextPluginOptions {
   buildTargetName?: string;
   devTargetName?: string;
   startTargetName?: string;
+  /**
+   * @deprecated Use `startTargetName` instead.
+   */
   serveStaticTargetName?: string;
+  buildDepsTargetName?: string;
+  watchDepsTargetName?: string;
 }
 
-const cachePath = join(projectGraphCacheDirectory, 'next.hash');
-const targetsCache = existsSync(cachePath) ? readTargetsCache() : {};
+const pmc = getPackageManagerCommand();
 
-const calculatedTargets: Record<
-  string,
-  Record<string, TargetConfiguration>
-> = {};
+const nextConfigBlob = '**/next.config.{ts,js,cjs,mjs}';
 
-function readTargetsCache(): Record<
-  string,
-  Record<string, TargetConfiguration>
-> {
-  return readJsonFile(cachePath);
+function readTargetsCache(
+  cachePath: string
+): Record<string, Record<string, TargetConfiguration<NextPluginOptions>>> {
+  return existsSync(cachePath) ? readJsonFile(cachePath) : {};
 }
 
 function writeTargetsToCache(
-  targets: Record<string, Record<string, TargetConfiguration>>
+  cachePath: string,
+  targetsCache: Record<string, TargetConfiguration<NextPluginOptions>>
 ) {
-  writeJsonFile(cachePath, targets);
+  const oldCache = readTargetsCache(cachePath);
+  writeJsonFile(cachePath, {
+    ...oldCache,
+    ...targetsCache,
+  });
 }
 
+/**
+ * @deprecated The 'createDependencies' function is now a no-op. This functionality is included in 'createNodesV2'.
+ */
 export const createDependencies: CreateDependencies = () => {
-  writeTargetsToCache(calculatedTargets);
   return [];
 };
 
-export const createNodes: CreateNodes<NextPluginOptions> = [
-  '**/next.config.{js,cjs,mjs}',
-  async (configFilePath, options, context) => {
-    const projectRoot = dirname(configFilePath);
+export const createNodesV2: CreateNodesV2<NextPluginOptions> = [
+  nextConfigBlob,
+  async (configFiles, options, context) => {
+    const optionsHash = hashObject(options);
+    const cachePath = join(workspaceDataDirectory, `next-${optionsHash}.json`);
+    const targetsCache = readTargetsCache(cachePath);
 
-    // Do not create a project if package.json and project.json isn't there.
-    const siblingFiles = readdirSync(join(context.workspaceRoot, projectRoot));
-    if (
-      !siblingFiles.includes('package.json') &&
-      !siblingFiles.includes('project.json')
-    ) {
-      return {};
+    try {
+      return await createNodesFromFiles(
+        (configFile, options, context) =>
+          createNodesInternal(configFile, options, context, targetsCache),
+        configFiles,
+        options,
+        context
+      );
+    } finally {
+      writeTargetsToCache(cachePath, targetsCache);
     }
-    options = normalizeOptions(options);
-
-    const hash = calculateHashForCreateNodes(projectRoot, options, context, [
-      getLockFileName(detectPackageManager(context.workspaceRoot)),
-    ]);
-
-    const targets =
-      targetsCache[hash] ??
-      (await buildNextTargets(configFilePath, projectRoot, options, context));
-
-    calculatedTargets[hash] = targets;
-
-    return {
-      projects: {
-        [projectRoot]: {
-          root: projectRoot,
-          targets,
-        },
-      },
-    };
   },
 ];
+
+/**
+ * @deprecated This is replaced with {@link createNodesV2}. Update your plugin to export its own `createNodesV2` function that wraps this one instead.
+ * This function will change to the v2 function in Nx 21.
+ */
+export const createNodes: CreateNodes<NextPluginOptions> = [
+  nextConfigBlob,
+  async (configFilePath, options, context) => {
+    logger.warn(
+      '`createNodes` is deprecated. Update your plugin to utilize createNodesV2 instead. In Nx 21, this will change to the createNodesV2 API.'
+    );
+
+    const optionsHash = hashObject(options);
+    const cachePath = join(workspaceDataDirectory, `next-${optionsHash}.json`);
+    const targetsCache = readTargetsCache(cachePath);
+
+    const result = await createNodesInternal(
+      configFilePath,
+      options,
+      context,
+      targetsCache
+    );
+    writeTargetsToCache(cachePath, targetsCache);
+    return result;
+  },
+];
+
+async function createNodesInternal(
+  configFilePath: string,
+  options: NextPluginOptions,
+  context: CreateNodesContext,
+  targetsCache: Record<
+    string,
+    Record<string, TargetConfiguration<NextPluginOptions>>
+  >
+) {
+  const projectRoot = dirname(configFilePath);
+
+  // Do not create a project if package.json and project.json isn't there.
+  const siblingFiles = readdirSync(join(context.workspaceRoot, projectRoot));
+  if (
+    !siblingFiles.includes('package.json') &&
+    !siblingFiles.includes('project.json')
+  ) {
+    return {};
+  }
+  options = normalizeOptions(options);
+
+  const hash = await calculateHashForCreateNodes(
+    projectRoot,
+    options,
+    context,
+    [getLockFileName(detectPackageManager(context.workspaceRoot))]
+  );
+
+  targetsCache[hash] ??= await buildNextTargets(
+    configFilePath,
+    projectRoot,
+    options,
+    context
+  );
+
+  return {
+    projects: {
+      [projectRoot]: {
+        root: projectRoot,
+        targets: targetsCache[hash],
+      },
+    },
+  };
+}
 
 async function buildNextTargets(
   nextConfigPath: string,
@@ -105,9 +175,19 @@ async function buildNextTargets(
 
   targets[options.devTargetName] = getDevTargetConfig(projectRoot);
 
-  targets[options.startTargetName] = getStartTargetConfig(options, projectRoot);
+  const startTarget = getStartTargetConfig(options, projectRoot);
 
-  targets[options.serveStaticTargetName] = getStaticServeTargetConfig(options);
+  targets[options.startTargetName] = startTarget;
+
+  targets[options.serveStaticTargetName] = startTarget;
+
+  addBuildAndWatchDepsTargets(
+    context.workspaceRoot,
+    projectRoot,
+    targets,
+    options,
+    pmc
+  );
 
   return targets;
 }
@@ -129,6 +209,11 @@ async function getBuildTargetConfig(
     inputs: getInputs(namedInputs),
     outputs: [nextOutputPath, `${nextOutputPath}/!(cache)`],
   };
+
+  // TODO(ndcunningham): Update this to be consider different versions of next.js which is running
+  // This doesn't actually need to be tty, but next.js has a bug, https://github.com/vercel/next.js/issues/62906, where it exits 0 when SIGINT is sent.
+  targetConfig.options.tty = false;
+
   return targetConfig;
 }
 
@@ -162,6 +247,8 @@ function getStaticServeTargetConfig(options: NextPluginOptions) {
       buildTarget: options.buildTargetName,
       staticFilePath: '{projectRoot}/out',
       port: 3000,
+      // Routes are found correctly with serve-static
+      spa: false,
     },
   };
 
@@ -192,19 +279,13 @@ async function getOutputs(projectRoot, nextConfig) {
   }
 }
 
-async function getNextConfig(
+function getNextConfig(
   configFilePath: string,
   context: CreateNodesContext
 ): Promise<any> {
   const resolvedPath = join(context.workspaceRoot, configFilePath);
 
-  let module;
-  if (extname(configFilePath) === '.mjs') {
-    module = await loadEsmModule(resolvedPath);
-  } else {
-    module = load(resolvedPath);
-  }
-  return module.default ?? module;
+  return loadConfigFile(resolvedPath);
 }
 
 function normalizeOptions(options: NextPluginOptions): NextPluginOptions {
@@ -227,37 +308,4 @@ function getInputs(
       externalDependencies: ['next'],
     },
   ];
-}
-
-const packageInstallationDirectories = ['node_modules', '.yarn'];
-/**
- * Load the module after ensuring that the require cache is cleared.
- */
-function load(path: string): any {
-  // Clear cache if the path is in the cache
-  if (require.cache[path]) {
-    for (const key of Object.keys(require.cache)) {
-      if (!packageInstallationDirectories.some((dir) => key.includes(dir))) {
-        delete require.cache[key];
-      }
-    }
-  }
-
-  // Then require
-  return require(path);
-}
-
-/**
- * Lazily compiled dynamic import loader function.
- */
-let dynamicLoad: (<T>(modulePath: string | URL) => Promise<T>) | undefined;
-
-export function loadEsmModule<T>(modulePath: string | URL): Promise<T> {
-  const modulePathWithCacheBust = `${modulePath}?version=${Date.now()}`;
-  dynamicLoad ??= new Function(
-    'modulePath',
-    `return import(modulePath);`
-  ) as Exclude<typeof dynamicLoad, undefined>;
-
-  return dynamicLoad(modulePathWithCacheBust);
 }

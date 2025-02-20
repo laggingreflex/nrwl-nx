@@ -3,6 +3,7 @@ import { NxJsonConfiguration } from '../config/nx-json';
 import { findMatchingProjects } from './find-matching-projects';
 import { output } from './output';
 import { ProjectGraphProjectNode } from '../config/project-graph';
+import { WorkspaceValidityError } from '../devkit-internals';
 
 export function assertWorkspaceValidity(
   projects: Record<string, ProjectConfiguration>,
@@ -99,7 +100,7 @@ export function assertWorkspaceValidity(
       .join('\n\n');
   }
 
-  throw new Error(`Configuration Error\n${message}`);
+  throw new WorkspaceValidityError(message);
 }
 
 function detectAndSetInvalidProjectGlobValues(
@@ -113,7 +114,10 @@ function detectAndSetInvalidProjectGlobValues(
     const projectName = implicit.startsWith('!')
       ? implicit.substring(1)
       : implicit;
-
+    // Do not error on cross-workspace implicit dependency references
+    if (projectName.startsWith('nx-cloud:')) {
+      return false;
+    }
     return !(
       projectConfigurations[projectName] ||
       findMatchingProjects([implicit], projects).length

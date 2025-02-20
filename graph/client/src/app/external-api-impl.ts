@@ -1,4 +1,4 @@
-import { ExternalApi, getExternalApiService } from '@nx/graph/shared';
+import { ExternalApi, getExternalApiService } from '@nx/graph/legacy/shared';
 import { getRouter } from './get-router';
 import { getProjectGraphService } from './machines/get-services';
 import { getGraphService } from './machines/graph.service';
@@ -25,40 +25,10 @@ export class ExternalApiImpl extends ExternalApi {
           console.log('graphInteractionEventListener not registered.');
           return;
         }
-        if (type === 'file-click') {
-          const url = `${payload.sourceRoot}/${payload.file}`;
-          this.graphInteractionEventListener({
-            type: 'file-click',
-            payload: { url },
-          });
-        } else if (type === 'open-project-config') {
-          this.graphInteractionEventListener({
-            type: 'open-project-config',
-            payload,
-          });
-        } else if (type === 'run-task') {
-          this.graphInteractionEventListener({
-            type: 'run-task',
-            payload,
-          });
-        } else if (type === 'open-project-graph') {
-          this.graphInteractionEventListener({
-            type: 'open-project-graph',
-            payload,
-          });
-        } else if (type === 'open-task-graph') {
-          this.graphInteractionEventListener({
-            type: 'open-task-graph',
-            payload,
-          });
-        } else if (type === 'override-target') {
-          this.graphInteractionEventListener({
-            type: 'override-target',
-            payload,
-          });
-        } else {
-          console.log('unhandled event', type, payload);
-        }
+        this.graphInteractionEventListener({
+          type,
+          payload,
+        });
       }
     );
 

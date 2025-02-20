@@ -1,12 +1,9 @@
 import { logger } from './logger';
-import { NxJsonConfiguration } from '../config/nx-json';
-import {
-  TargetConfiguration,
+import type { NxJsonConfiguration } from '../config/nx-json';
+import type {
   ProjectsConfigurations,
+  TargetConfiguration,
 } from '../config/workspace-json-project-json';
-import { output } from './output';
-
-const LIST_CHOICE_DISPLAY_LIMIT = 10;
 
 type PropertyDescription = {
   type?: string | string[];
@@ -88,31 +85,6 @@ export type Options = {
   '--'?: Unmatched[];
   [k: string]: string | number | boolean | string[] | Unmatched[] | undefined;
 };
-
-export async function handleErrors(isVerbose: boolean, fn: Function) {
-  try {
-    return await fn();
-  } catch (err) {
-    err ||= new Error('Unknown error caught');
-    if (err.constructor.name === 'UnsuccessfulWorkflowExecution') {
-      logger.error('The generator workflow failed. See above.');
-    } else {
-      const lines = (err.message ? err.message : err.toString()).split('\n');
-      const bodyLines = lines.slice(1);
-      if (err.stack && !isVerbose) {
-        bodyLines.push('Pass --verbose to see the stacktrace.');
-      }
-      output.error({
-        title: lines[0],
-        bodyLines,
-      });
-      if (err.stack && isVerbose) {
-        logger.info(err.stack);
-      }
-    }
-    return 1;
-  }
-}
 
 function camelCase(input: string): string {
   if (input.indexOf('-') > 1) {
@@ -255,26 +227,39 @@ export function validateObject(
     }
   }
   if (schema.oneOf) {
-    for (const s of schema.oneOf) {
-      const errors: Error[] = [];
-      for (const s of schema.oneOf) {
-        try {
-          validateObject(opts, s, definitions);
-        } catch (e) {
-          errors.push(e);
-        }
+    const matches: Array<PropertyDescription> = [];
+    const errors: Array<Error> = [];
+    for (const propertyDescription of schema.oneOf) {
+      try {
+        validateObject(opts, propertyDescription, definitions);
+        matches.push(propertyDescription);
+      } catch (error) {
+        errors.push(error);
       }
-      if (errors.length === schema.oneOf.length) {
-        throw new Error(
-          `Options did not match schema. Please fix 1 of the following errors:\n${errors
-            .map((e) => ' - ' + e.message)
-            .join('\n')}`
-        );
-      }
-      if (errors.length < schema.oneOf.length - 1) {
-        // TODO: This error could be better.
-        throw new Error(`Options did not match schema.`);
-      }
+    }
+    // If the options matched none of the oneOf property descriptions
+    if (matches.length === 0) {
+      throw new Error(
+        `Options did not match schema: ${JSON.stringify(
+          opts,
+          null,
+          2
+        )}.\nPlease fix 1 of the following errors:\n${errors
+          .map((e) => ' - ' + e.message)
+          .join('\n')}`
+      );
+    }
+    // If the options matched none of the oneOf property descriptions
+    if (matches.length > 1) {
+      throw new Error(
+        `Options did not match schema: ${JSON.stringify(
+          opts,
+          null,
+          2
+        )}.\nShould only match one of \n${matches
+          .map((m) => ' - ' + JSON.stringify(m))
+          .join('\n')}`
+      );
     }
   }
 
@@ -290,7 +275,7 @@ export function validateObject(
   ) {
     Object.keys(opts).find((p) => {
       if (
-        Object.keys(schema.properties).indexOf(p) === -1 &&
+        Object.keys(schema.properties ?? {}).indexOf(p) === -1 &&
         (!schema.patternProperties ||
           !Object.keys(schema.patternProperties).some((pattern) =>
             new RegExp(pattern).test(p)
@@ -859,10 +844,14 @@ export function getPromptsForSchema(
         }
       };
 
+      // Limit the number of choices displayed so that the prompt fits on the screen
+      const limitForChoicesDisplayed =
+        process.stdout.rows - question.message.split('\n').length;
+
       if (v.type === 'string' && v.enum && Array.isArray(v.enum)) {
         question.type = 'autocomplete';
         question.choices = [...v.enum];
-        question.limit = LIST_CHOICE_DISPLAY_LIMIT;
+        question.limit = limitForChoicesDisplayed;
       } else if (
         v.type === 'string' &&
         (v.$default?.$source === 'projectName' ||
@@ -873,7 +862,7 @@ export function getPromptsForSchema(
       ) {
         question.type = 'autocomplete';
         question.choices = Object.keys(projectsConfigurations.projects);
-        question.limit = LIST_CHOICE_DISPLAY_LIMIT;
+        question.limit = limitForChoicesDisplayed;
       } else if (v.type === 'number' || v['x-prompt'].type == 'number') {
         question.type = 'numeral';
       } else if (
@@ -898,7 +887,7 @@ export function getPromptsForSchema(
               };
             }
           });
-        question.limit = LIST_CHOICE_DISPLAY_LIMIT;
+        question.limit = limitForChoicesDisplayed;
       } else if (v.type === 'boolean') {
         question.type = 'confirm';
       } else {

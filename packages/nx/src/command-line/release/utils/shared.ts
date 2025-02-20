@@ -21,15 +21,29 @@ export type ReleaseVersionGeneratorResult = {
       verbose?: boolean;
       generatorOptions?: Record<string, unknown>;
     }
-  ) => Promise<string[]>;
+  ) => Promise<
+    | string[]
+    | {
+        changedFiles: string[];
+        deletedFiles: string[];
+      }
+  >;
 };
 
 export type VersionData = Record<
   string,
   {
-    newVersion: string;
+    /**
+     * newVersion will be null in the case that no changes are detected for the project,
+     * e.g. when using conventional commits
+     */
+    newVersion: string | null;
     currentVersion: string;
-    dependentProjects: any[]; // TODO: investigate generic type for this once more ecosystems are explored
+    /**
+     * The list of projects which depend upon the current project.
+     * TODO: investigate generic type for this once more ecosystems are explored
+     */
+    dependentProjects: any[];
   }
 >;
 
@@ -61,20 +75,29 @@ export class ReleaseVersion {
   }
 }
 
-export async function commitChanges(
-  changedFiles: string[],
-  isDryRun: boolean,
-  isVerbose: boolean,
-  gitCommitMessages: string[],
-  gitCommitArgs?: string
-) {
-  if (!changedFiles.length) {
+export async function commitChanges({
+  changedFiles,
+  deletedFiles,
+  isDryRun,
+  isVerbose,
+  gitCommitMessages,
+  gitCommitArgs,
+}: {
+  changedFiles?: string[];
+  deletedFiles?: string[];
+  isDryRun?: boolean;
+  isVerbose?: boolean;
+  gitCommitMessages?: string[];
+  gitCommitArgs?: string | string[];
+}) {
+  if (!changedFiles?.length && !deletedFiles?.length) {
     throw new Error('Error: No changed files to commit');
   }
 
   output.logSingleLine(`Committing changes with git`);
   await gitAdd({
     changedFiles,
+    deletedFiles,
     dryRun: isDryRun,
     verbose: isVerbose,
   });
@@ -189,14 +212,15 @@ export function createCommitMessageValues(
 
     // One entry for the whole group for fixed groups
     const projectVersionData = versionData[releaseGroupProjectNames[0]]; // all at the same version, so we can just pick the first one
-    const releaseVersion = new ReleaseVersion({
-      version: projectVersionData.newVersion,
-      releaseTagPattern: releaseGroup.releaseTagPattern,
-    });
-
-    commitMessageValues.push(
-      `- release-group: ${releaseGroup.name} ${releaseVersion.rawVersion}`
-    );
+    if (projectVersionData.newVersion !== null) {
+      const releaseVersion = new ReleaseVersion({
+        version: projectVersionData.newVersion,
+        releaseTagPattern: releaseGroup.releaseTagPattern,
+      });
+      commitMessageValues.push(
+        `- release-group: ${releaseGroup.name} ${releaseVersion.rawVersion}`
+      );
+    }
   }
 
   return commitMessageValues;
@@ -242,11 +266,14 @@ export function createGitTagValues(
     }
     // For fixed groups we want one tag for the overall group
     const projectVersionData = versionData[releaseGroupProjectNames[0]]; // all at the same version, so we can just pick the first one
-    tags.push(
-      interpolate(releaseGroup.releaseTagPattern, {
-        version: projectVersionData.newVersion,
-      })
-    );
+    if (projectVersionData.newVersion !== null) {
+      tags.push(
+        interpolate(releaseGroup.releaseTagPattern, {
+          version: projectVersionData.newVersion,
+          releaseGroupName: releaseGroup.name,
+        })
+      );
+    }
   }
 
   return tags;

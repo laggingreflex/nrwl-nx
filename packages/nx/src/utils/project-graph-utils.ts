@@ -1,9 +1,5 @@
-import { buildTargetFromScript, PackageJson } from './package-json';
-import { join } from 'path';
 import { ProjectGraph, ProjectGraphProjectNode } from '../config/project-graph';
-import { readJsonFile } from './fileutils';
 import { readCachedProjectGraph } from '../project-graph/project-graph';
-import { TargetConfiguration } from '../config/workspace-json-project-json';
 
 export function projectHasTarget(
   project: ProjectGraphProjectNode,
@@ -30,7 +26,7 @@ export function projectHasTargetAndConfiguration(
 
 export function getSourceDirOfDependentProjects(
   projectName: string,
-  projectGraph = readCachedProjectGraph()
+  projectGraph: ProjectGraph = readCachedProjectGraph()
 ): [projectDirs: string[], warnings: string[]] {
   if (!projectGraph.nodes[projectName]) {
     throw new Error(
@@ -62,7 +58,7 @@ export function getSourceDirOfDependentProjects(
  */
 export function findAllProjectNodeDependencies(
   parentNodeName: string,
-  projectGraph = readCachedProjectGraph(),
+  projectGraph: ProjectGraph = readCachedProjectGraph(),
   includeExternalDependencies = false
 ): string[] {
   const dependencyNodeNames = new Set<string>();

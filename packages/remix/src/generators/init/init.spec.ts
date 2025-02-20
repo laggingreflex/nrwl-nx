@@ -1,3 +1,5 @@
+import 'nx/src/internal-testing-utils/mock-project-graph';
+
 import { createTreeWithEmptyWorkspace } from '@nx/devkit/testing';
 import { readJson } from '@nx/devkit';
 import initGenerator from './init';
@@ -16,15 +18,15 @@ describe('Remix Init Generator', () => {
     const pkgJson = readJson(tree, 'package.json');
     expect(pkgJson.dependencies).toMatchInlineSnapshot(`
       {
-        "@remix-run/serve": "^2.6.0",
+        "@remix-run/serve": "^2.15.0",
       }
     `);
     expect(pkgJson.devDependencies).toMatchInlineSnapshot(`
-        {
-          "@nx/web": "0.0.1",
-          "@remix-run/dev": "^2.6.0",
-        }
-      `);
+      {
+        "@nx/web": "0.0.1",
+        "@remix-run/dev": "^2.15.0",
+      }
+    `);
 
     const nxJson = readJson(tree, 'nx.json');
     expect(nxJson).toMatchInlineSnapshot(`
@@ -35,10 +37,13 @@ describe('Remix Init Generator', () => {
         "plugins": [
           {
             "options": {
+              "buildDepsTargetName": "build-deps",
               "buildTargetName": "build",
-              "serveTargetName": "serve",
+              "devTargetName": "dev",
+              "serveStaticTargetName": "serve-static",
               "startTargetName": "start",
               "typecheckTargetName": "typecheck",
+              "watchDepsTargetName": "watch-deps",
             },
             "plugin": "@nx/remix/plugin",
           },
@@ -67,13 +72,13 @@ describe('Remix Init Generator', () => {
       const pkgJson = readJson(tree, 'package.json');
       expect(pkgJson.dependencies).toMatchInlineSnapshot(`
         {
-          "@remix-run/serve": "^2.6.0",
+          "@remix-run/serve": "^2.15.0",
         }
       `);
       expect(pkgJson.devDependencies).toMatchInlineSnapshot(`
         {
           "@nx/web": "0.0.1",
-          "@remix-run/dev": "^2.6.0",
+          "@remix-run/dev": "^2.15.0",
         }
       `);
     });

@@ -1,5 +1,10 @@
 import * as ts from 'typescript';
-import { ExecutorContext } from '@nx/devkit';
+import {
+  ExecutorContext,
+  isDaemonEnabled,
+  joinPathFragments,
+  output,
+} from '@nx/devkit';
 import type { TypeScriptCompilationOptions } from '@nx/workspace/src/utilities/typescript/compilation';
 import { CopyAssetsHandler } from '../../utils/assets/copy-assets-handler';
 import { checkDependencies } from '../../utils/check-dependencies';
@@ -41,11 +46,11 @@ export function createTypeScriptCompilationOptions(
   context: ExecutorContext
 ): TypeScriptCompilationOptions {
   return {
-    outputPath: normalizedOptions.outputPath,
+    outputPath: joinPathFragments(normalizedOptions.outputPath),
     projectName: context.projectName,
     projectRoot: normalizedOptions.projectRoot,
-    rootDir: normalizedOptions.rootDir,
-    tsConfig: normalizedOptions.tsConfig,
+    rootDir: joinPathFragments(normalizedOptions.rootDir),
+    tsConfig: joinPathFragments(normalizedOptions.tsConfig),
     watch: normalizedOptions.watch,
     deleteOutputPath: normalizedOptions.clean,
     getCustomTransformers: getCustomTrasformersFactory(
@@ -109,22 +114,21 @@ export async function* tscExecutor(
     tsCompilationOptions,
     async () => {
       await assetHandler.processAllAssetsOnce();
-      updatePackageJson(
-        {
-          ...options,
-          additionalEntryPoints: createEntryPoints(
-            options.additionalEntryPoints,
-            context.root
-          ),
-          format: [determineModuleFormatFromTsConfig(options.tsConfig)],
-          // As long as d.ts files match their .js counterparts, we don't need to emit them.
-          // TSC can match them correctly based on file names.
-          skipTypings: true,
-        },
-        context,
-        target,
-        dependencies
-      );
+      if (options.generatePackageJson) {
+        updatePackageJson(
+          {
+            ...options,
+            additionalEntryPoints: createEntryPoints(
+              options.additionalEntryPoints,
+              context.root
+            ),
+            format: [determineModuleFormatFromTsConfig(options.tsConfig)],
+          },
+          context,
+          target,
+          dependencies
+        );
+      }
       postProcessInlinedDependencies(
         tsCompilationOptions.outputPath,
         tsCompilationOptions.projectRoot,
@@ -133,35 +137,42 @@ export async function* tscExecutor(
     }
   );
 
-  if (options.watch) {
+  if (!isDaemonEnabled() && options.watch) {
+    output.warn({
+      title:
+        'Nx Daemon is not enabled. Assets and package.json files will not be updated when files change.',
+    });
+  }
+
+  if (isDaemonEnabled() && options.watch) {
     const disposeWatchAssetChanges =
       await assetHandler.watchAndProcessOnAssetChange();
-    const disposePackageJsonChanges = await watchForSingleFileChanges(
-      context.projectName,
-      options.projectRoot,
-      'package.json',
-      () =>
-        updatePackageJson(
-          {
-            ...options,
-            additionalEntryPoints: createEntryPoints(
-              options.additionalEntryPoints,
-              context.root
-            ),
-            // As long as d.ts files match their .js counterparts, we don't need to emit them.
-            // TSC can match them correctly based on file names.
-            skipTypings: true,
-            format: [determineModuleFormatFromTsConfig(options.tsConfig)],
-          },
-          context,
-          target,
-          dependencies
-        )
-    );
+    let disposePackageJsonChanges: undefined | (() => void);
+    if (options.generatePackageJson) {
+      disposePackageJsonChanges = await watchForSingleFileChanges(
+        context.projectName,
+        options.projectRoot,
+        'package.json',
+        () =>
+          updatePackageJson(
+            {
+              ...options,
+              additionalEntryPoints: createEntryPoints(
+                options.additionalEntryPoints,
+                context.root
+              ),
+              format: [determineModuleFormatFromTsConfig(options.tsConfig)],
+            },
+            context,
+            target,
+            dependencies
+          )
+      );
+    }
     const handleTermination = async (exitCode: number) => {
       await typescriptCompilation.close();
       disposeWatchAssetChanges();
-      disposePackageJsonChanges();
+      disposePackageJsonChanges?.();
       process.exit(exitCode);
     };
     process.on('SIGINT', () => handleTermination(128 + 2));

@@ -1,11 +1,13 @@
 <% if (webpackPluginOptions) { %>
-const { NxWebpackPlugin } = require('@nx/webpack');
-const { NxReactWebpackPlugin } = require('@nx/react');
+const { NxAppWebpackPlugin } = require('@nx/webpack/app-plugin');
+const { NxReactWebpackPlugin } = require('@nx/react/webpack-plugin');
 
 module.exports = {
   resolve: {
     alias: {
       'react-native$': 'react-native-web',
+      'react-native-svg': 'react-native-svg-web',
+      '@react-native/assets-registry/registry': 'react-native-web/dist/modules/AssetRegistry/index',
     },
     extensions: ['.web.tsx', '.web.ts', '.web.jsx', '.web.js']
   },
@@ -13,7 +15,7 @@ module.exports = {
     port: 4200
   },
   plugins: [
-    new NxWebpackPlugin({
+    new NxAppWebpackPlugin({
       tsConfig: '<%= webpackPluginOptions.tsConfig %>',
       compiler: '<%= webpackPluginOptions.compiler %>',
       main: '<%= webpackPluginOptions.main %>',
@@ -51,6 +53,8 @@ module.exports = composePlugins(
   config.resolve.alias = {
     ...config.resolve.alias ?? {},
     'react-native$': 'react-native-web',
+    'react-native-svg': 'react-native-svg-web',
+    '@react-native/assets-registry/registry': 'react-native-web/dist/modules/AssetRegistry/index',
   };
   config.resolve.extensions = [
     '.web.tsx',

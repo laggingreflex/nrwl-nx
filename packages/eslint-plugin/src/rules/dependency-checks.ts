@@ -1,17 +1,21 @@
-import { join } from 'path';
-import { satisfies } from 'semver';
+import { NX_VERSION, normalizePath, workspaceRoot } from '@nx/devkit';
+import { findNpmDependencies } from '@nx/js/src/utils/find-npm-dependencies';
+import { ESLintUtils } from '@typescript-eslint/utils';
 import { AST } from 'jsonc-eslint-parser';
 import { type JSONLiteral } from 'jsonc-eslint-parser/lib/parser/ast';
-import { normalizePath, workspaceRoot, NX_VERSION } from '@nx/devkit';
-import { findNpmDependencies } from '@nx/js/src/utils/find-npm-dependencies';
-import { readProjectGraph } from '../utils/project-graph-utils';
-import { findProject, getSourceFilePath } from '../utils/runtime-lint-utils';
+import { join } from 'path';
+import { satisfies } from 'semver';
 import {
   getAllDependencies,
   getPackageJson,
   getProductionDependencies,
 } from '../utils/package-json-utils';
-import { ESLintUtils } from '@typescript-eslint/utils';
+import { readProjectGraph } from '../utils/project-graph-utils';
+import {
+  findProject,
+  getParserServices,
+  getSourceFilePath,
+} from '../utils/runtime-lint-utils';
 
 export type Options = [
   {
@@ -23,6 +27,7 @@ export type Options = [
     ignoredFiles?: string[];
     includeTransitiveDependencies?: boolean;
     useLocalPathsForWorkspaceDependencies?: boolean;
+    runtimeHelpers?: string[];
   }
 ];
 
@@ -43,7 +48,6 @@ export default ESLintUtils.RuleCreator(
     type: 'suggestion',
     docs: {
       description: `Checks dependencies in project's package.json for version mismatches`,
-      recommended: 'recommended',
     },
     fixable: 'code',
     schema: [
@@ -58,6 +62,7 @@ export default ESLintUtils.RuleCreator(
           checkVersionMismatches: { type: 'boolean' },
           includeTransitiveDependencies: { type: 'boolean' },
           useLocalPathsForWorkspaceDependencies: { type: 'boolean' },
+          runtimeHelpers: { type: 'array', items: { type: 'string' } },
         },
         additionalProperties: false,
       },
@@ -79,6 +84,7 @@ export default ESLintUtils.RuleCreator(
       ignoredFiles: [],
       includeTransitiveDependencies: false,
       useLocalPathsForWorkspaceDependencies: false,
+      runtimeHelpers: [],
     },
   ],
   create(
@@ -93,13 +99,14 @@ export default ESLintUtils.RuleCreator(
         checkVersionMismatches,
         includeTransitiveDependencies,
         useLocalPathsForWorkspaceDependencies,
+        runtimeHelpers,
       },
     ]
   ) {
-    if (!(context.parserServices as any).isJSON) {
+    if (!getParserServices(context).isJSON) {
       return {};
     }
-    const fileName = normalizePath(context.getFilename());
+    const fileName = normalizePath(context.filename ?? context.getFilename());
     // support only package.json
     if (!fileName.endsWith('/package.json')) {
       return {};
@@ -144,18 +151,14 @@ export default ESLintUtils.RuleCreator(
         includeTransitiveDependencies,
         ignoredFiles,
         useLocalPathsForWorkspaceDependencies,
+        runtimeHelpers,
       }
     );
     const expectedDependencyNames = Object.keys(npmDependencies);
 
-    const projPackageJsonPath = join(
-      workspaceRoot,
-      sourceProject.data.root,
-      'package.json'
-    );
+    const packageJson = JSON.parse(context.sourceCode.getText());
+    const projPackageJsonDeps = getProductionDependencies(packageJson);
 
-    const projPackageJsonDeps: Record<string, string> =
-      getProductionDependencies(projPackageJsonPath);
     const rootPackageJsonDeps = getAllDependencies(rootPackageJson);
 
     function validateMissingDependencies(node: AST.JSONProperty) {
@@ -215,6 +218,13 @@ export default ESLintUtils.RuleCreator(
         packageRange.startsWith('file:') ||
         npmDependencies[packageName] === '*' ||
         packageRange === '*' ||
+        packageRange.startsWith('workspace:') ||
+        /**
+         * Catalogs can be named, or left unnamed
+         * So just checking up until the : will catch both cases
+         * e.g. catalog:some-catalog or catalog:
+         */
+        packageRange.startsWith('catalog:') ||
         satisfies(npmDependencies[packageName], packageRange, {
           includePrerelease: true,
         })

@@ -7,14 +7,14 @@ export function createTsConfig(
     projectRoot: string;
     rootProject?: boolean;
     unitTestRunner?: string;
+    isUsingTsSolutionConfig: boolean;
   },
   relativePathToRootTsConfig: string
 ) {
   createAppTsConfig(host, options);
   const json = {
-    compilerOptions: {},
     files: [],
-    include: [],
+    include: options.isUsingTsSolutionConfig ? undefined : ['.nuxt/nuxt.d.ts'],
     references: [
       {
         path: './tsconfig.app.json',
@@ -49,6 +49,7 @@ function createAppTsConfig(host: Tree, options: { projectRoot: string }) {
     compilerOptions: {
       composite: true,
     },
+    include: ['.nuxt/nuxt.d.ts', 'src/**/*'],
     exclude: [],
   };
 

@@ -1,13 +1,14 @@
 import { CreateWorkspaceOptions } from './create-workspace-options';
 import { output } from './utils/output';
-import { setupNxCloud } from './utils/nx/nx-cloud';
+import { getOnboardingInfo, readNxCloudToken } from './utils/nx/nx-cloud';
 import { createSandbox } from './create-sandbox';
 import { createEmptyWorkspace } from './create-empty-workspace';
 import { createPreset } from './create-preset';
 import { setupCI } from './utils/ci/setup-ci';
 import { initializeGitRepo } from './utils/git/git';
-import { getThirdPartyPreset } from './utils/preset/get-third-party-preset';
+import { getPackageNameFromThirdPartyPreset } from './utils/preset/get-third-party-preset';
 import { mapErrorToBodyLines } from './utils/error-utils';
+import { Preset } from './utils/preset/preset';
 
 export async function createWorkspace<T extends CreateWorkspaceOptions>(
   preset: string,
@@ -21,6 +22,7 @@ export async function createWorkspace<T extends CreateWorkspaceOptions>(
     defaultBase = 'main',
     commit,
     cliName,
+    useGitHub,
   } = options;
 
   if (cliName) {
@@ -29,38 +31,51 @@ export async function createWorkspace<T extends CreateWorkspaceOptions>(
 
   const tmpDir = await createSandbox(packageManager);
 
+  const workspaceGlobs = getWorkspaceGlobsFromPreset(preset);
+
   // nx new requires a preset currently. We should probably make it optional.
   const directory = await createEmptyWorkspace<T>(
     tmpDir,
     name,
     packageManager,
-    { ...options, preset }
+    { ...options, preset, workspaceGlobs }
   );
 
   // If the preset is a third-party preset, we need to call createPreset to install it
   // For first-party presets, it will be created by createEmptyWorkspace instead.
   // In createEmptyWorkspace, it will call `nx new` -> `@nx/workspace newGenerator` -> `@nx/workspace generatePreset`.
-  const thirdPartyPreset = await getThirdPartyPreset(preset);
-  if (thirdPartyPreset) {
-    await createPreset(thirdPartyPreset, options, packageManager, directory);
+  const thirdPartyPackageName = getPackageNameFromThirdPartyPreset(preset);
+  if (thirdPartyPackageName) {
+    await createPreset(
+      thirdPartyPackageName,
+      options,
+      packageManager,
+      directory
+    );
   }
 
-  let nxCloudInstallRes;
+  let connectUrl: string | undefined;
+  let nxCloudInfo: string | undefined;
   if (nxCloud !== 'skip') {
-    nxCloudInstallRes = await setupNxCloud(directory, packageManager, nxCloud);
+    const token = readNxCloudToken(directory) as string;
 
     if (nxCloud !== 'yes') {
-      await setupCI(
-        directory,
-        nxCloud,
-        packageManager,
-        nxCloudInstallRes?.code === 0
-      );
+      await setupCI(directory, nxCloud, packageManager);
     }
+
+    const { connectCloudUrl, output } = await getOnboardingInfo(
+      nxCloud,
+      token,
+      directory,
+      useGitHub
+    );
+    connectUrl = connectCloudUrl;
+    nxCloudInfo = output;
   }
-  if (!skipGit && commit) {
+
+  if (!skipGit) {
     try {
-      await initializeGitRepo(directory, { defaultBase, commit });
+      await initializeGitRepo(directory, { defaultBase, commit, connectUrl });
     } catch (e) {
       if (e instanceof Error) {
         output.error({
@@ -74,7 +89,34 @@ export async function createWorkspace<T extends CreateWorkspaceOptions>(
   }
 
   return {
-    nxCloudInfo: nxCloudInstallRes?.stdout,
+    nxCloudInfo,
     directory,
   };
+}
+
+export function extractConnectUrl(text: string): string | null {
+  const urlPattern = /(https:\/\/[^\s]+\/connect\/[^\s]+)/g;
+  const match = text.match(urlPattern);
+  return match ? match[0] : null;
+}
+
+function getWorkspaceGlobsFromPreset(preset: string): string[] {
+  // Should match how apps are created in `packages/workspace/src/generators/preset/preset.ts`.
+  switch (preset) {
+    case Preset.AngularMonorepo:
+    case Preset.Expo:
+    case Preset.Express:
+    case Preset.Nest:
+    case Preset.NextJs:
+    case Preset.NodeMonorepo:
+    case Preset.Nuxt:
+    case Preset.ReactNative:
+    case Preset.ReactMonorepo:
+    case Preset.RemixMonorepo:
+    case Preset.VueMonorepo:
+    case Preset.WebComponents:
+      return ['apps/*'];
+    default:
+      return ['packages/*'];
+  }
 }

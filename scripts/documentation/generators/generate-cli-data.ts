@@ -17,8 +17,17 @@ import {
 
 const importFresh = require('import-fresh');
 
-const sharedCommands = ['generate', 'run', 'exec'];
-const hiddenCommands = ['$0'];
+// Docs for these commands are inside docs/shared/cli - they are not dynamically generated.
+const sharedCommands = ['generate', 'exec'];
+
+// These commands are hidden from the documentation.
+const hiddenCommands = [
+  '$0',
+  // These commands are only applicable to powerpack users
+  // TODO: Introduce custom formatting for such commands, instead of hiding them
+  'conformance',
+  'conformance:check',
+];
 
 export async function generateCliDocumentation(
   commandsOutputDirectory: string
@@ -102,7 +111,10 @@ description: "${command.description}"
         (name) =>
           !sharedCommands.includes(name) &&
           !hiddenCommands.includes(name) &&
-          nxCommands[name].description
+          // These are all supported yargs fields for description
+          (nxCommands[name].description ||
+            nxCommands[name].describe ||
+            nxCommands[name].desc)
       )
       .map((name) => parseCommand(name, nxCommands[name]))
       .map(async (command) => generateMarkdown(await command))

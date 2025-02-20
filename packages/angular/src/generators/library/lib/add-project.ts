@@ -2,17 +2,13 @@ import type { Tree } from '@nx/devkit';
 import { addProjectConfiguration, joinPathFragments } from '@nx/devkit';
 import type { AngularProjectConfiguration } from '../../../utils/types';
 import type { NormalizedSchema } from './normalized-schema';
-import { addBuildTargetDefaults } from '@nx/devkit/src/generators/add-build-target-defaults';
+import { addBuildTargetDefaults } from '@nx/devkit/src/generators/target-defaults-utils';
+import { addReleaseConfigForNonTsSolution } from '@nx/js/src/generators/library/utils/add-release-config';
 
-export function addProject(
+export async function addProject(
   tree: Tree,
   libraryOptions: NormalizedSchema['libraryOptions']
 ) {
-  const executor = libraryOptions.publishable
-    ? '@nx/angular:package'
-    : '@nx/angular:ng-packagr-lite';
-
-  addBuildTargetDefaults(tree, executor);
   const project: AngularProjectConfiguration = {
     name: libraryOptions.name,
     root: libraryOptions.projectRoot,
@@ -20,28 +16,41 @@ export function addProject(
     prefix: libraryOptions.prefix,
     tags: libraryOptions.parsedTags,
     projectType: 'library',
-    targets: {
-      build:
-        libraryOptions.buildable || libraryOptions.publishable
-          ? {
-              executor,
-              outputs: ['{workspaceRoot}/dist/{projectRoot}'],
-              options: {
-                project: `${libraryOptions.projectRoot}/ng-package.json`,
-              },
-              configurations: {
-                production: {
-                  tsConfig: `${libraryOptions.projectRoot}/tsconfig.lib.prod.json`,
-                },
-                development: {
-                  tsConfig: `${libraryOptions.projectRoot}/tsconfig.lib.json`,
-                },
-              },
-              defaultConfiguration: 'production',
-            }
-          : undefined,
-    },
+    targets: {},
   };
+
+  if (libraryOptions.buildable || libraryOptions.publishable) {
+    const executor = libraryOptions.publishable
+      ? '@nx/angular:package'
+      : '@nx/angular:ng-packagr-lite';
+
+    addBuildTargetDefaults(tree, executor);
+
+    project.targets.build = {
+      executor,
+      outputs: ['{workspaceRoot}/dist/{projectRoot}'],
+      options: {
+        project: `${libraryOptions.projectRoot}/ng-package.json`,
+      },
+      configurations: {
+        production: {
+          tsConfig: `${libraryOptions.projectRoot}/tsconfig.lib.prod.json`,
+        },
+        development: {
+          tsConfig: `${libraryOptions.projectRoot}/tsconfig.lib.json`,
+        },
+      },
+      defaultConfiguration: 'production',
+    };
+
+    if (libraryOptions.publishable) {
+      await addReleaseConfigForNonTsSolution(
+        tree,
+        libraryOptions.name,
+        project
+      );
+    }
+  }
 
   addProjectConfiguration(tree, libraryOptions.name, project);
   return project;

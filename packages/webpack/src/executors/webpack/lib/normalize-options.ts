@@ -8,6 +8,7 @@ import type {
   NormalizedWebpackExecutorOptions,
   WebpackExecutorOptions,
 } from '../schema';
+import { isUsingTsSolutionSetup } from '@nx/js/src/utils/typescript/ts-solution-setup';
 
 export function normalizeOptions(
   options: WebpackExecutorOptions,
@@ -17,6 +18,7 @@ export function normalizeOptions(
 ): NormalizedWebpackExecutorOptions {
   const normalizedOptions = {
     ...options,
+    useTsconfigPaths: !isUsingTsSolutionSetup(),
     root,
     projectRoot,
     sourceRoot,
@@ -37,7 +39,8 @@ export function normalizeOptions(
       options.assets,
       root,
       sourceRoot,
-      projectRoot
+      projectRoot,
+      false // executor assets are relative to workspace root for consistency
     );
   }
   return normalizedOptions as NormalizedWebpackExecutorOptions;

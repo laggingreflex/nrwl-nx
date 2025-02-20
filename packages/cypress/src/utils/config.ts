@@ -1,4 +1,4 @@
-import { glob, type Tree } from '@nx/devkit';
+import { glob, joinPathFragments, type Tree } from '@nx/devkit';
 import type {
   InterfaceDeclaration,
   MethodSignature,
@@ -39,32 +39,40 @@ export async function addDefaultE2EConfig(
   let updatedConfigContents = cyConfigContents;
 
   if (testingTypeConfig.length === 0) {
-    const configValue = `nxE2EPreset(__filename, ${JSON.stringify(options)})`;
+    const configValue = `nxE2EPreset(__filename, ${JSON.stringify(
+      options,
+      null,
+      2
+    )
+      .split('\n')
+      .join('\n    ')})`;
 
     updatedConfigContents = tsquery.replace(
       cyConfigContents,
       `${TS_QUERY_EXPORT_CONFIG_PREFIX} ObjectLiteralExpression:first-child`,
       (node: ObjectLiteralExpression) => {
-        let baseUrlContents = baseUrl ? `,\nbaseUrl: '${baseUrl}'` : '';
+        let baseUrlContents = baseUrl ? `,\n    baseUrl: '${baseUrl}'` : '';
         if (node.properties.length > 0) {
           return `{
   ${node.properties.map((p) => p.getText()).join(',\n')},
-  e2e: { ...${configValue}${baseUrlContents} } 
+  e2e: {
+    ...${configValue}${baseUrlContents}
+  } 
 }`;
         }
         return `{
-  e2e: { ...${configValue}${baseUrlContents} }
+  e2e: {
+    ...${configValue}${baseUrlContents}
+  }
 }`;
       }
     );
 
     return isCommonJS
       ? `const { nxE2EPreset } = require('@nx/cypress/plugins/cypress-preset');
-    
-    ${updatedConfigContents}`
+${updatedConfigContents}`
       : `import { nxE2EPreset } from '@nx/cypress/plugins/cypress-preset';
-    
-    ${updatedConfigContents}`;
+${updatedConfigContents}`;
   }
   return updatedConfigContents;
 }
@@ -168,7 +176,7 @@ export function getProjectCypressConfigPath(
   projectRoot: string
 ): string {
   const cypressConfigPaths = glob(tree, [
-    `${projectRoot}/${CYPRESS_CONFIG_FILE_NAME_PATTERN}`,
+    joinPathFragments(projectRoot, CYPRESS_CONFIG_FILE_NAME_PATTERN),
   ]);
   if (cypressConfigPaths.length === 0) {
     throw new Error(`Could not find a cypress config file in ${projectRoot}.`);

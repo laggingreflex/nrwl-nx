@@ -1,5 +1,5 @@
 import { join } from 'path';
-import * as chalk from 'chalk';
+import * as pc from 'picocolors';
 import {
   ExecutorContext,
   ProjectGraph,
@@ -47,7 +47,8 @@ export default async function* syncDepsExecutor(
       typeof options.exclude === 'string'
         ? options.exclude.split(',')
         : options.exclude,
-      options.all
+      options.all,
+      options.excludeImplicit
     )
   );
 
@@ -62,11 +63,12 @@ export async function syncDeps(
   projectGraph: ProjectGraph = readCachedProjectGraph(),
   include: string[] = [],
   exclude: string[] = [],
-  all: boolean = false
+  all: boolean = false,
+  excludeImplicit: boolean = false
 ): Promise<string[]> {
   let npmDeps = all
     ? Object.keys(workspacePackageJson.dependencies || {})
-    : findAllNpmDependencies(projectGraph, projectName);
+    : findAllNpmDependencies(projectGraph, projectName, { excludeImplicit });
   let npmDevdeps = all
     ? Object.keys(workspacePackageJson.devDependencies || {})
     : [];
@@ -126,14 +128,14 @@ export function displayNewlyAddedDepsMessage(
   deps: string[]
 ) {
   if (deps.length > 0) {
-    logger.info(`${chalk.bold.cyan(
-      'info'
+    logger.info(`${pc.bold(
+      pc.cyan('info')
     )} Added entries to 'package.json' for '${projectName}' (for autolink):
-  ${deps.map((d) => chalk.bold.cyan(`"${d}": "*"`)).join('\n  ')}`);
+  ${deps.map((d) => pc.bold(pc.cyan(`"${d}": "*"`))).join('\n  ')}`);
   } else {
     logger.info(
-      `${chalk.bold.cyan(
-        'info'
+      `${pc.bold(
+        pc.cyan('info')
       )} Dependencies for '${projectName}' are up to date! No changes made.`
     );
   }

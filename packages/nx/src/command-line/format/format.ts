@@ -1,39 +1,48 @@
-import { execSync } from 'child_process';
-import * as path from 'path';
+import { exec, execSync } from 'node:child_process';
+import * as path from 'node:path';
+import * as yargs from 'yargs';
+import { calculateFileChanges, FileData } from '../../project-graph/file-utils';
 import {
   getProjectRoots,
   NxArgs,
   parseFiles,
   splitArgsIntoNxArgsAndOverrides,
 } from '../../utils/command-line-utils';
-import { getIgnoreObject } from '../../utils/ignore';
 import { fileExists, readJsonFile, writeJsonFile } from '../../utils/fileutils';
-import { calculateFileChanges, FileData } from '../../project-graph/file-utils';
-import * as yargs from 'yargs';
+import { getIgnoreObject } from '../../utils/ignore';
 
-import * as prettier from 'prettier';
 import type { SupportInfo } from 'prettier';
-import { sortObjectByKeys } from '../../utils/object-sort';
-import { readModulePackageJson } from '../../utils/package-json';
+import { readNxJson } from '../../config/configuration';
+import { ProjectGraph } from '../../config/project-graph';
 import {
   getRootTsConfigFileName,
   getRootTsConfigPath,
 } from '../../plugins/js/utils/typescript';
-import { createProjectGraphAsync } from '../../project-graph/project-graph';
 import { filterAffected } from '../../project-graph/affected/affected-project-graph';
-import { readNxJson } from '../../config/configuration';
-import { ProjectGraph } from '../../config/project-graph';
-import { chunkify } from '../../utils/chunkify';
+import { createProjectGraphAsync } from '../../project-graph/project-graph';
 import { allFileData } from '../../utils/all-file-data';
-import { workspaceRoot } from '../../utils/workspace-root';
+import { chunkify } from '../../utils/chunkify';
+import { sortObjectByKeys } from '../../utils/object-sort';
 import { output } from '../../utils/output';
-
-const PRETTIER_PATH = getPrettierPath();
+import { readModulePackageJson } from '../../utils/package-json';
+import { workspaceRoot } from '../../utils/workspace-root';
 
 export async function format(
   command: 'check' | 'write',
   args: yargs.Arguments
 ): Promise<void> {
+  try {
+    require('prettier');
+  } catch {
+    output.error({
+      title: 'Prettier is not installed.',
+      bodyLines: [
+        `Please install "prettier" and try again, or don't run the "nx format:${command}" command.`,
+      ],
+    });
+    process.exit(1);
+  }
+
   const { nxArgs } = splitArgsIntoNxArgsAndOverrides(
     args,
     'affected',
@@ -43,7 +52,7 @@ export async function format(
   const patterns = (await getPatterns({ ...args, ...nxArgs } as any)).map(
     // prettier removes one of the \
     // prettier-ignore
-    (p) => `"${p.replace(/\$/g, "\\\$")}"`
+    (p) => `"${p.replace(/\$/g, '\\\$')}"`
   );
 
   // Chunkify the patterns array to prevent crashing the windows terminal
@@ -51,19 +60,37 @@ export async function format(
 
   switch (command) {
     case 'write':
-      sortTsConfig();
+      if (nxArgs.sortRootTsconfigPaths) {
+        sortTsConfig();
+      }
       addRootConfigFiles(chunkList, nxArgs);
       chunkList.forEach((chunk) => write(chunk));
       break;
-    case 'check':
-      const pass = chunkList.reduce(
-        (pass, chunk) => check(chunk) && pass,
-        true
-      );
-      if (!pass) {
+    case 'check': {
+      const filesWithDifferentFormatting = [];
+      for (const chunk of chunkList) {
+        const files = await check(chunk);
+        filesWithDifferentFormatting.push(...files);
+      }
+      if (filesWithDifferentFormatting.length > 0) {
+        if (nxArgs.verbose) {
+          output.error({
+            title:
+              'The following files are not formatted correctly based on your Prettier configuration',
+            bodyLines: [
+              '- Run "nx format:write" and commit the resulting diff to fix these files.',
+              '- Please note, Prettier does not support a native way to diff the output of its check logic (https://github.com/prettier/prettier/issues/6885).',
+              '',
+              ...filesWithDifferentFormatting,
+            ],
+          });
+        } else {
+          console.log(filesWithDifferentFormatting.join('\n'));
+        }
         process.exit(1);
       }
       break;
+    }
   }
 }
 
@@ -87,7 +114,9 @@ async function getPatterns(
     // In prettier v3 the getSupportInfo result is a promise
     const supportedExtensions = new Set(
       (
-        await (prettier.getSupportInfo() as Promise<SupportInfo> | SupportInfo)
+        await (require('prettier').getSupportInfo() as
+          | Promise<SupportInfo>
+          | SupportInfo)
       ).languages
         .flatMap((language) => language.extensions)
         .filter((extension) => !!extension)
@@ -127,7 +156,9 @@ async function getPatternsFromApps(
   allWorkspaceFiles: FileData[],
   projectGraph: ProjectGraph
 ): Promise<string[]> {
-  const graph = await createProjectGraphAsync({ exitOnError: true });
+  const graph = await createProjectGraphAsync({
+    exitOnError: true,
+  });
   const affectedGraph = await filterAffected(
     graph,
     calculateFileChanges(affectedFiles, allWorkspaceFiles)
@@ -176,41 +207,54 @@ function write(patterns: string[]) {
       },
       [[], []] as [swcrcPatterns: string[], regularPatterns: string[]]
     );
+    const prettierPath = getPrettierPath();
 
     execSync(
-      `node "${PRETTIER_PATH}" --write --list-different ${regularPatterns.join(
+      `node "${prettierPath}" --write --list-different ${regularPatterns.join(
         ' '
       )}`,
       {
         stdio: [0, 1, 2],
+        windowsHide: false,
       }
     );
 
     if (swcrcPatterns.length > 0) {
       execSync(
-        `node "${PRETTIER_PATH}" --write --list-different ${swcrcPatterns.join(
+        `node "${prettierPath}" --write --list-different ${swcrcPatterns.join(
           ' '
         )} --parser json`,
         {
           stdio: [0, 1, 2],
+          windowsHide: false,
         }
       );
     }
   }
 }
 
-function check(patterns: string[]): boolean {
+async function check(patterns: string[]): Promise<string[]> {
   if (patterns.length === 0) {
-    return true;
+    return [];
   }
-  try {
-    execSync(`node "${PRETTIER_PATH}" --list-different ${patterns.join(' ')}`, {
-      stdio: [0, 1, 2],
-    });
-    return true;
-  } catch {
-    return false;
-  }
+
+  const prettierPath = getPrettierPath();
+
+  return new Promise((resolve) => {
+    exec(
+      `node "${prettierPath}" --list-different ${patterns.join(' ')}`,
+      { encoding: 'utf-8', windowsHide: false },
+      (error, stdout) => {
+        if (error) {
+          // The command failed so there are files with different formatting. Prettier writes them to stdout, newline separated.
+          resolve(stdout.trim().split('\n'));
+        } else {
+          // The command succeeded so there are no files with different formatting
+          resolve([]);
+        }
+      }
+    );
+  });
 }
 
 function sortTsConfig() {
@@ -225,7 +269,15 @@ function sortTsConfig() {
   }
 }
 
+let prettierPath: string;
+
 function getPrettierPath() {
+  if (prettierPath) {
+    return prettierPath;
+  }
+
   const { bin } = readModulePackageJson('prettier').packageJson;
-  return require.resolve(path.join('prettier', bin as string));
+  prettierPath = require.resolve(path.join('prettier', bin as string));
+
+  return prettierPath;
 }

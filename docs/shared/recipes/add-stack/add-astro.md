@@ -13,7 +13,7 @@ Because we are not using an Nx plugin for Astro, there are few items we'll have 
 {% pill url="/ci/features/remote-cache" %}✅ Remote Caching{% /pill %}
 {% pill url="/features/explore-graph" %}✅ Explore the Graph{% /pill %}
 {% pill url="/ci/features/distribute-task-execution" %}✅ Distribute Task Execution{% /pill %}
-{% pill url="/features/integrate-with-editors" %}✅ Integrate with Editors{% /pill %}
+{% pill url="/getting-started/editor-setup" %}✅ Integrate with Editors{% /pill %}
 {% pill url="/features/automate-updating-dependencies" %}✅ Automate Updating Nx{% /pill %}
 {% pill url="/recipes/enforce-module-boundaries" %}✅ Enforce Project Boundaries{% /pill %}
 {% pill url="/features/generate-code" %}🚫 Use Code Generators{% /pill %}
@@ -27,28 +27,28 @@ npm create astro@latest
 
 ## Add Nx
 
-We can leverage [`nx init`](/recipes/adopting-nx/adding-to-existing-project#installing-nx-on-a-non-monorepo-project) to add Nx to the Astro application.
+We can leverage [`nx init`](/recipes/adopting-nx/adding-to-existing-project#install-nx-on-a-nonmonorepo-project) to add Nx to the Astro application.
 
 ```{% command="npx nx@latest init" path="~/astro-app"%}
- >  NX   🐳 Nx initialization
+NX   🐳 Nx initialization
 
 
- >  NX   🧑‍🔧 Please answer the following questions about the scripts found in your package.json in order to generate task runner configuration
+NX   🧑‍🔧 Please answer the following questions about the scripts found in your package.json in order to generate task runner configuration
 
 ✔ Which of the following scripts are cacheable? (Produce the same output given the same input, e.g. build, test and lint usually are, serve and start are not). You can use spacebar to select one or more scripts. · build
 
 
 ✔ Would you like remote caching to make your build faster? · Yes
 
- >  NX   📦 Installing dependencies
+NX   📦 Installing dependencies
 
- >  NX   🎉 Done!
+NX   🎉 Done!
 
-   - Enabled computation caching!
-   - Learn more at https://nx.dev/recipes/adopting-nx/adding-to-existing-project.
+- Enabled computation caching!
+- Learn more at https://nx.dev/recipes/adopting-nx/adding-to-existing-project.
 ```
 
-You can add a task as cacheable after the fact by updating the `cacheableOperations` in the `nx.json` file. Learn more about [caching task results](/recipes/adopting-nx/adding-to-existing-project#installing-nx-on-a-non-monorepo-project) or [how caching works](/features/cache-task-results).
+You can [configure a task as cacheable](/features/cache-task-results) after the fact by updating [the project configuration](/reference/project-configuration#cache) or [the global Nx configuration](/reference/nx-json#cache). Learn more about [caching task results](/features/cache-task-results) or [how caching works](/concepts/how-caching-works).
 
 ## Running Tasks
 
@@ -88,12 +88,8 @@ nx add @nx/js@<nx-version>
 
 Then generate a project
 
-{% callout type="note" title="Directory Flag Behavior Changes" %}
-The command below uses the `as-provided` directory flag behavior, which is the default in Nx 16.8.0. If you're on an earlier version of Nx or using the `derived` option, omit the `--directory` flag. See the [as-provided vs. derived documentation](/deprecated/as-provided-vs-derived) for more details.
-{% /callout %}
-
-```{% command="nx g @nx/js:lib ui --directory=libs/ui --simpleName --minimal" path="~/astro-app"}
->  NX  Generating @nx/js:library
+```{% command="nx g @nx/js:lib libs/ui --minimal" path="~/astro-app" %}
+NX  Generating @nx/js:library
 
 ✔ Which unit test runner would you like to use? · none
 ✔ Which bundler would you like to use to build the library? Choose 'none' to skip build setup. · none
