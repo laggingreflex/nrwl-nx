@@ -68,6 +68,25 @@ export async function loadRemoteNxPlugin(
 
   const { worker, socket } = await startPluginWorker();
 
+  // Register plugin worker as a subprocess of the main CLI
+  // This allows metrics collection when the daemon is not used
+  if (worker.pid) {
+    try {
+      const { isDaemonEnabled } = await import('../../../daemon/client/client');
+
+      // Only register if daemon is not enabled - when daemon is enabled,
+      // plugin workers are spawned as children of the daemon and tracked automatically
+      if (!isDaemonEnabled()) {
+        const { getProcessMetricsService } = await import(
+          '../../../tasks-runner/process-metrics-service'
+        );
+        getProcessMetricsService().registerMainCliSubprocess(worker.pid);
+      }
+    } catch {
+      // Silently ignore - metrics collection is optional
+    }
+  }
+
   const pendingPromises = new Map<string, PendingPromise>();
 
   const exitHandler = createWorkerExitHandler(worker, pendingPromises);
@@ -383,6 +402,7 @@ function registerPendingPromise(
 }
 
 global.nxPluginWorkerCount ??= 0;
+
 async function startPluginWorker() {
   // this should only really be true when running unit tests within
   // the Nx repo. We still need to start the worker in this case,
@@ -404,7 +424,7 @@ async function startPluginWorker() {
   };
 
   const ipcPath = getPluginOsSocketPath(
-    [process.pid, global.nxPluginWorkerCount++].join('-')
+    [process.pid, global.nxPluginWorkerCount++, performance.now()].join('-')
   );
 
   const worker = spawn(
